@@ -1,0 +1,78 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: system-ui, 'Segoe UI', Roboto, sans-serif;
+}
+
+body {
+  background-color: #f9fafb;
+  color: #1f2937;
+}
+
+/* ─── ESTILOS DE IMPRESIÓN (FASE 10) ─── */
+@media print {
+  body {
+    background: white !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  /* Ocultar elementos innecesarios */
+  nav, 
+  aside, 
+  header,
+  .no-print, 
+  button, 
+  .sidebar, 
+  .navbar,
+  .professional-disclaimer {
+    display: none !important;
+  }
+
+  /* Forzar visibilidad del contenido principal */
+  .main-content, 
+  #print-area {
+    position: absolute !important;
+    left: 0 !important;
+    top: 0 !important;
+    width: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    display: block !important;
+    visibility: visible !important;
+    border: none !important;
+    box-shadow: none !important;
+    transform: none !important;
+  }
+
+  /* Ajustes de página */
+  @page {
+    size: letter;
+    margin: 1.5cm;
+  }
+
+  /* Tipografía y Tablas */
+  h1, h2, h3, h4 {
+    page-break-after: avoid;
+    color: black !important;
+  }
+  
+  table {
+    page-break-inside: auto;
+    width: 100% !important;
+    border-collapse: collapse !important;
+  }
+  
+  tr {
+    page-break-inside: avoid;
+    page-break-after: auto;
+  }
+
+  /* Evitar sombras en impresión */
+  * {
+    box-shadow: none !important;
+    text-shadow: none !important;
+  }
+}

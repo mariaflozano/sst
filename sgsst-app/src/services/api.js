@@ -1,36 +1,42 @@
-// src/services/api.js
+const SGSST_URL = import.meta.env.VITE_SGSST_URL ?? 'http://localhost:8000';
+const RAP_URL   = import.meta.env.VITE_RAP_URL   ?? 'http://localhost';
 
-export const api = async (endpoint, options = {}) => {
-  const url = `http://localhost:8000/api${endpoint}`;
-
-  // Obtener el perfil actual de la empresa
-  let companyId = null;
+const getAuth = () => {
   try {
-    const saved = localStorage.getItem('sgsst_company_profile');
-    if (saved) {
-      companyId = JSON.parse(saved).id;
-    }
-  } catch (e) {
-    console.warn("Fallo leyendo perfil para el token de empresa", e);
+    const saved = localStorage.getItem('sgsst_auth');
+    return saved ? JSON.parse(saved) : null;
+  } catch {
+    return null;
   }
+};
 
+const buildHeaders = (extra = {}) => {
+  const auth = getAuth();
   const headers = {
     'Content-Type': 'application/json',
     'Accept': 'application/json',
-    ...options.headers,
+    ...extra,
   };
-
-  // Inyectar el token de multi-tenencia si existe
-  if (companyId) {
-    headers['X-Company-ID'] = companyId.toString();
+  if (auth?.token) {
+    headers['Authorization'] = `Bearer ${auth.token}`;
   }
+  return headers;
+};
 
-  // Futuro: Aquí se inyectará el Authorization: Bearer {token} de Sanctum
-
-  const response = await fetch(url, {
-    ...options,
-    headers,
+// Llamadas al backend SG-SST (sgsst-backend)
+export const api = async (endpoint, options = {}) => {
+  const { headers: extraHeaders, ...rest } = options;
+  return fetch(`${SGSST_URL}/api${endpoint}`, {
+    ...rest,
+    headers: buildHeaders(extraHeaders),
   });
+};
 
-  return response;
+// Llamadas al backend RAP (tienda-multitenancy) para auth
+export const rapApi = async (endpoint, options = {}) => {
+  const { headers: extraHeaders, ...rest } = options;
+  return fetch(`${RAP_URL}${endpoint}`, {
+    ...rest,
+    headers: buildHeaders(extraHeaders),
+  });
 };

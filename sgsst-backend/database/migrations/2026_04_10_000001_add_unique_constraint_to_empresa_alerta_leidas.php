@@ -13,8 +13,10 @@ return new class extends Migration
         DB::statement('
             DELETE FROM empresa_alerta_leidas
             WHERE id NOT IN (
-                SELECT MIN(id) FROM empresa_alerta_leidas
-                GROUP BY empresa_id, alerta_id
+                SELECT min_id FROM (
+                    SELECT MIN(id) AS min_id FROM empresa_alerta_leidas
+                    GROUP BY empresa_id, alerta_id
+                ) AS tmp
             )
         ');
 

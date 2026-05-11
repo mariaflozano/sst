@@ -8,15 +8,28 @@ use Illuminate\Support\Facades\Storage;
 
 class EmpresaController extends Controller
 {
+    public function miEmpresa(Request $request)
+    {
+        $tenantId = $request->query('tenant_id');
+        $empresa = Empresa::where('tenant_id', $tenantId)->first();
+
+        if (!$empresa) {
+            return response()->json(null, 404);
+        }
+
+        return response()->json($empresa);
+    }
+
     public function store(Request $request)
     {
         $validated = $request->validate([
-            'nombre' => 'required|string|max:255',
-            'trabajadores' => 'required|integer',
-            'nivel_riesgo' => 'required|string',
-            'codigo_ciiu' => 'required|string',
+            'tenant_id'           => 'required|string',
+            'nombre'              => 'required|string|max:255',
+            'trabajadores'        => 'required|integer',
+            'nivel_riesgo'        => 'required|string',
+            'codigo_ciiu'         => 'required|string',
             'cantidad_estandares' => 'nullable|integer',
-            'clasificacion' => 'nullable|string',
+            'clasificacion'       => 'nullable|string',
         ]);
 
         $empresa = Empresa::create($validated);

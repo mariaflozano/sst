@@ -9,6 +9,7 @@ class Empresa extends Model
     protected $table = 'empresas';
 
     protected $fillable = [
+        'tenant_id',
         'nombre',
         'trabajadores',
         'nivel_riesgo',

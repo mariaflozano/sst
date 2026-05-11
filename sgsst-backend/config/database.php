@@ -64,6 +64,21 @@ return [
             ]) : [],
         ],
 
+        'rap' => [
+            'driver' => 'mysql',
+            'host' => env('RAP_DB_HOST', '127.0.0.1'),
+            'port' => env('RAP_DB_PORT', '3306'),
+            'database' => env('RAP_DB_DATABASE', 'rap'),
+            'username' => env('RAP_DB_USERNAME', 'root'),
+            'password' => env('RAP_DB_PASSWORD', ''),
+            'unix_socket' => env('DB_SOCKET', ''),
+            'charset' => 'utf8mb4',
+            'collation' => 'utf8mb4_unicode_ci',
+            'prefix' => '',
+            'prefix_indexes' => true,
+            'strict' => false,
+        ],
+
         'mariadb' => [
             'driver' => 'mariadb',
             'url' => env('DB_URL'),

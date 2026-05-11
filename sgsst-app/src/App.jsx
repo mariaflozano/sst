@@ -36,6 +36,7 @@ import {
 } from 'recharts';
 
 // Componentes del Sistema
+import Login from './Login';
 import Onboarding from './Onboarding';
 import PHVA from './PHVA';
 import BancoFormatos from './BancoFormatos';
@@ -54,25 +55,95 @@ import Auditorias from './Auditorias';
 import { api } from './services/api';
 
 export default function App() {
-  const [view, setView] = useState('onboarding');
+  const [view, setView] = useState('loading');
+  const [authState, setAuthState] = useState(null);
   const [companyProfile, setCompanyProfile] = useState(null);
   const [showNotifications, setShowNotifications] = useState(false);
-  const [dashboardStats, setDashboardStats] = useState({
-    cumplidos: 0,
-    total: 60,
-    porcentaje: 0
-  });
-
+  const [dashboardStats, setDashboardStats] = useState({ cumplidos: 0, total: 60, porcentaje: 0 });
   const [unreadAlertas, setUnreadAlertas] = useState(0);
 
-  // Cargar perfil al iniciar
+  const displayName = companyProfile?.rep_legal_nombre || authState?.user?.name || companyProfile?.nombre || 'Usuario';
+
+  // Cargar sesión al iniciar
   useEffect(() => {
-    const savedProfile = localStorage.getItem('sgsst_company_profile');
-    if (savedProfile) {
-      setCompanyProfile(JSON.parse(savedProfile));
-      setView('dashboard');
-    }
+    const init = async () => {
+      const savedAuth    = localStorage.getItem('sgsst_auth');
+      const savedProfile = localStorage.getItem('sgsst_company_profile');
+
+      if (!savedAuth) { setView('login'); return; }
+
+      const auth = JSON.parse(savedAuth);
+      setAuthState(auth);
+
+      if (savedProfile) {
+        setCompanyProfile(JSON.parse(savedProfile));
+        setView('dashboard');
+        return;
+      }
+
+      // Hay sesión pero no perfil local — intentar cargarlo del backend
+      if (auth.tenant_id) {
+        try {
+          const res = await api(`/mi-empresa?tenant_id=${auth.tenant_id}`);
+          if (res.ok) {
+            const empresa = await res.json();
+            if (empresa) {
+              localStorage.setItem('sgsst_company_profile', JSON.stringify(empresa));
+              setCompanyProfile(empresa);
+              setView('dashboard');
+              return;
+            }
+          }
+        } catch { /* sin conexión, continuar */ }
+
+        // No existe empresa — crear con valores por defecto para no bloquear el acceso
+        try {
+          const createRes = await api('/empresas', {
+            method: 'POST',
+            body: JSON.stringify({
+              tenant_id: auth.tenant_id,
+              nombre: auth.user?.name || 'Mi Empresa',
+              trabajadores: 1,
+              nivel_riesgo: '1',
+              codigo_ciiu: '0000',
+              cantidad_estandares: 7,
+              clasificacion: 'Microempresa (Riesgo Bajo/Medio)',
+            }),
+          });
+          if (createRes.ok) {
+            const empresa = await createRes.json();
+            localStorage.setItem('sgsst_company_profile', JSON.stringify(empresa));
+            setCompanyProfile(empresa);
+            setView('dashboard');
+            return;
+          }
+        } catch { /* no hay conexión con el backend */ }
+      }
+
+      // Sin tenant_id o sin conexión → pedir login de nuevo
+      setView('login');
+    };
+    init();
   }, []);
+
+  const handleLogin = (auth, empresa) => {
+    setAuthState(auth);
+    if (empresa) {
+      localStorage.setItem('sgsst_company_profile', JSON.stringify(empresa));
+      setCompanyProfile(empresa);
+      setView('dashboard');
+    } else {
+      setView('onboarding');
+    }
+  };
+
+  const handleLogout = () => {
+    localStorage.removeItem('sgsst_auth');
+    localStorage.removeItem('sgsst_company_profile');
+    setAuthState(null);
+    setCompanyProfile(null);
+    setView('login');
+  };
 
   const fetchDashboardStats = async () => {
     if (!companyProfile?.id) return;
@@ -98,14 +169,39 @@ export default function App() {
     }
   }, [view, companyProfile]);
 
+  if (view === 'loading') {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="text-center">
+          <div className="w-12 h-12 border-4 border-orange-500 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+          <p className="text-gray-500 text-sm">Cargando...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (view === 'login') {
+    return (
+      <Login
+        onLogin={handleLogin}
+        onGoToRegister={() => setView('onboarding')}
+      />
+    );
+  }
+
   if (view === 'onboarding') {
     return (
-      <Onboarding 
-        onComplete={(company) => { 
-          localStorage.setItem('sgsst_company_profile', JSON.stringify(company));
-          setCompanyProfile(company); 
-          setView('dashboard'); 
-        }} 
+      <Onboarding
+        isRegistering={!authState}
+        onComplete={(empresa, auth) => {
+          if (auth) {
+            setAuthState(auth);
+            localStorage.setItem('sgsst_auth', JSON.stringify(auth));
+          }
+          localStorage.setItem('sgsst_company_profile', JSON.stringify(empresa));
+          setCompanyProfile(empresa);
+          setView('dashboard');
+        }}
       />
     );
   }
@@ -143,21 +239,17 @@ export default function App() {
           <div className="flex items-center justify-between">
             <div className="flex items-center">
               <div className="w-8 h-8 rounded-full bg-orange-500 flex items-center justify-center text-white font-bold text-sm mr-3">
-                 {(companyProfile?.rep_legal_nombre || companyProfile?.nombre || 'U').charAt(0).toUpperCase()}
+                 {displayName.charAt(0).toUpperCase()}
               </div>
               <div className="overflow-hidden">
-                 <p className="text-sm font-medium text-gray-800 truncate">{companyProfile?.rep_legal_nombre || 'Usuario'}</p>
+                 <p className="text-sm font-medium text-gray-800 truncate">{displayName}</p>
                  <p className="text-xs text-gray-500 truncate">Riesgo {companyProfile?.nivel_riesgo || 'I'}</p>
               </div>
             </div>
-            <button 
-               onClick={() => {
-                 localStorage.removeItem('sgsst_company_profile');
-                 setCompanyProfile(null);
-                 setView('onboarding');
-               }}
+            <button
+               onClick={handleLogout}
                className="text-xs text-red-500 hover:bg-red-50 p-1 rounded font-medium"
-               title="Cambiar a nueva empresa"
+               title="Cerrar sesión"
             >
                Salir
             </button>
@@ -190,9 +282,9 @@ export default function App() {
                   />
               </div>
               <div className="flex items-center ml-2">
-                  <span className="text-sm font-medium text-gray-700 mr-2">{companyProfile?.rep_legal_nombre || 'Admin Demo'}</span>
+                  <span className="text-sm font-medium text-gray-700 mr-2">{displayName}</span>
                   <div className="w-8 h-8 rounded-full bg-orange-500 flex items-center justify-center text-white font-bold text-xs">
-                     {(companyProfile?.rep_legal_nombre || 'A').charAt(0).toUpperCase()}
+                     {displayName.charAt(0).toUpperCase()}
                   </div>
               </div>
            </div>
@@ -206,7 +298,7 @@ export default function App() {
                 {/* Top Section */}
                 <div className="bg-white p-8 rounded-2xl shadow-sm border border-gray-100 flex flex-col lg:flex-row justify-between items-start lg:items-center">
                    <div className="mb-6 lg:mb-0">
-                      <h2 className="text-3xl font-bold text-gray-800 mb-1">Bienvenido, {companyProfile?.rep_legal_nombre || 'Usuario'}</h2>
+                      <h2 className="text-3xl font-bold text-gray-800 mb-1">Bienvenido, {displayName}</h2>
                       <p className="text-sm font-medium text-gray-500 mb-6">Resumen del Sistema de Gestión de Seguridad y Salud en el Trabajo</p>
                       
                       {/* Fake Date Range Picker for Aesthetics */}

@@ -16,7 +16,9 @@ Route::get('/user', function (Request $request) {
     return $request->user();
 })->middleware('auth:sanctum');
 
-Route::post('/empresas', [EmpresaController::class, 'store']);
+Route::get('/mi-empresa', [EmpresaController::class, 'miEmpresa'])->middleware('auth:sanctum');
+
+Route::post('/empresas', [EmpresaController::class, 'store'])->middleware('auth:sanctum');
 Route::get('/empresas/{id}', [EmpresaController::class, 'show']);
 Route::put('/empresas/{id}', [EmpresaController::class, 'update']);
 Route::post('/empresas/{id}/logo', [EmpresaController::class, 'uploadLogo']);

@@ -10,25 +10,47 @@ const getAuth = () => {
   }
 };
 
-const buildHeaders = (extra = {}) => {
+const getCompanyId = () => {
+  try {
+    const saved = localStorage.getItem('sgsst_company_profile');
+    return saved ? JSON.parse(saved)?.id : null;
+  } catch {
+    return null;
+  }
+};
+
+const buildHeaders = (extra = {}, skipContentType = false) => {
   const auth = getAuth();
+  const companyId = getCompanyId();
   const headers = {
-    'Content-Type': 'application/json',
     'Accept': 'application/json',
+    ...(!skipContentType && { 'Content-Type': 'application/json' }),
     ...extra,
   };
   if (auth?.token) {
     headers['Authorization'] = `Bearer ${auth.token}`;
   }
+  if (companyId) {
+    headers['X-Company-ID'] = companyId;
+  }
   return headers;
 };
 
-// Llamadas al backend SG-SST (sgsst-backend)
+// Llamadas al backend SG-SST — JSON
 export const api = async (endpoint, options = {}) => {
   const { headers: extraHeaders, ...rest } = options;
   return fetch(`${SGSST_URL}/api${endpoint}`, {
     ...rest,
     headers: buildHeaders(extraHeaders),
+  });
+};
+
+// Llamadas al backend SG-SST — FormData (sin Content-Type para que el browser ponga el boundary)
+export const apiForm = async (endpoint, options = {}) => {
+  const { headers: extraHeaders, ...rest } = options;
+  return fetch(`${SGSST_URL}/api${endpoint}`, {
+    ...rest,
+    headers: buildHeaders(extraHeaders, true),
   });
 };
 

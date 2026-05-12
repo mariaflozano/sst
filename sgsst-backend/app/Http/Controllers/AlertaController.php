@@ -89,10 +89,14 @@ class AlertaController extends Controller
                 'cumplimiento' => $item->cumplimiento,
                 'observaciones' => $item->observaciones,
                 'estado' => $isCustom ? 'vigente' : $item->alerta?->estado,
-                'area' => $isCustom ? 'SST' : $item->alerta?->area,
+                'area' => $isCustom ? ($item->area ?? 'SST') : $item->alerta?->area,
                 'url_oficial' => $isCustom ? null : $item->alerta?->url_oficial,
                 'sustituida_por' => $isCustom ? null : $item->alerta?->sustituida_por,
-                'isCustom' => $isCustom
+                'isCustom' => $isCustom,
+                'evidencia_url' => $item->evidencia_url
+                    ? Storage::disk('public')->url($item->evidencia_url)
+                    : null,
+                'fecha_seguimiento' => $item->fecha_seguimiento,
             ];
         });
 
@@ -183,10 +187,39 @@ class AlertaController extends Controller
             'norma_personalizada' => $request->norma,
             'titulo_personalizado' => $request->titulo,
             'observaciones' => $request->observaciones,
-            'cumplimiento' => 'pendiente'
+            'area' => $request->area ?? 'SST',
+            'cumplimiento' => $request->cumplimiento ?? 'pendiente',
         ]);
 
-        return response()->json(['message' => 'Norma personalizada agregada', 'item' => $item]);
+        return response()->json(['message' => 'Norma personalizada agregada', 'item' => $item], 201);
+    }
+
+    public function updateCustomNorm(Request $request, $id)
+    {
+        $item = MatrizLegalItem::whereNull('alerta_id')->findOrFail($id);
+
+        $request->validate([
+            'norma' => 'required|string',
+            'titulo' => 'required|string',
+        ]);
+
+        $item->update([
+            'norma_personalizada' => $request->norma,
+            'titulo_personalizado' => $request->titulo,
+            'observaciones' => $request->observaciones,
+            'area' => $request->area ?? $item->area ?? 'SST',
+            'cumplimiento' => $request->cumplimiento ?? $item->cumplimiento ?? 'pendiente',
+        ]);
+
+        return response()->json(['message' => 'Norma actualizada', 'item' => $item]);
+    }
+
+    public function destroyCustomNorm($id)
+    {
+        $item = MatrizLegalItem::whereNull('alerta_id')->findOrFail($id);
+        $item->delete();
+
+        return response()->json(['message' => 'Norma eliminada']);
     }
 
     public function listDocuments($empresaId)

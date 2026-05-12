@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
+import { api, apiForm } from './services/api';
 import {
   BookOpen, Search, Filter, ShieldCheck, ExternalLink,
   CalendarDays, Plus, Upload, FileText, CheckCircle2,
   AlertCircle, ChevronLeft, ChevronRight, X, Clock, Trash2, Layers,
-  Globe, Shield, Zap, Paperclip, Eye, Download, FileSearch
+  Globe, Shield, Zap, Paperclip, Eye, Download, FileSearch, Pencil
 } from 'lucide-react';
 
 export default function MatrizLegal({ profile }) {
@@ -27,7 +28,8 @@ export default function MatrizLegal({ profile }) {
   // Forms
   const [uploadFile, setUploadFile] = useState(null);
   const [docName, setDocName] = useState('');
-  const [customNorm, setCustomNorm] = useState({ norma: '', titulo: '', observaciones: '', area: 'SST' });
+  const [customNorm, setCustomNorm] = useState({ norma: '', titulo: '', observaciones: '', area: 'SST', cumplimiento: 'pendiente' });
+  const [editingCustomId, setEditingCustomId] = useState(null);
   const [integrationData, setIntegrationData] = useState({ cumplimiento: 'pendiente', observaciones: '' });
   const [isDiscovering, setIsDiscovering] = useState(false);
   const [discoveryMessage, setDiscoveryMessage] = useState('');
@@ -56,16 +58,16 @@ export default function MatrizLegal({ profile }) {
   const fetchData = async () => {
     setLoading(true);
     try {
-      const endpoints = {
-        'mi-matriz': `http://localhost:8000/api/empresas/${empresaId}/matriz-legal`,
-        'biblioteca': `http://localhost:8000/api/empresas/${empresaId}/biblioteca-legal`,
-        'anexos': `http://localhost:8000/api/empresas/${empresaId}/matriz-legal/documentos`,
-        'integral': `http://localhost:8000/api/empresas/${empresaId}/matriz-legal/consolidado`
+      const paths = {
+        'mi-matriz': `/empresas/${empresaId}/matriz-legal`,
+        'biblioteca': `/empresas/${empresaId}/biblioteca-legal`,
+        'anexos': `/empresas/${empresaId}/matriz-legal/documentos`,
+        'integral': `/empresas/${empresaId}/matriz-legal/consolidado`,
       };
 
-      const res = await fetch(`${endpoints[activeTab]}?area=${areaFilter}`);
+      const res = await api(`${paths[activeTab]}?area=${areaFilter}`);
       const data = await res.json();
-      
+
       const safeData = Array.isArray(data) ? data : [];
 
       if (activeTab === 'mi-matriz') setMiMatriz(safeData);
@@ -73,9 +75,8 @@ export default function MatrizLegal({ profile }) {
       if (activeTab === 'anexos') setDocumentos(safeData);
       if (activeTab === 'integral') setConsolidado(safeData);
 
-      // Si no es el tab de documentos, también traemos los documentos en segundo plano para el conteo
       if (activeTab !== 'anexos') {
-        const resDocs = await fetch(endpoints['anexos']);
+        const resDocs = await api(`/empresas/${empresaId}/matriz-legal/documentos`);
         const dataDocs = await resDocs.json();
         setDocumentos(Array.isArray(dataDocs) ? dataDocs : []);
       }
@@ -97,14 +98,13 @@ export default function MatrizLegal({ profile }) {
   const submitIntegration = async (e) => {
     e.preventDefault();
     try {
-      const res = await fetch('http://localhost:8000/api/empresas/matriz-legal/add', {
+      const res = await api('/empresas/matriz-legal/add', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          empresa_id: empresaId, 
+        body: JSON.stringify({
+          empresa_id: empresaId,
           alerta_id: integratingAlerta.id,
-          ...integrationData
-        })
+          ...integrationData,
+        }),
       });
       if (res.ok) {
         alert("Norma integrada a tu matriz con éxito.");
@@ -119,12 +119,15 @@ export default function MatrizLegal({ profile }) {
 
   const handleDelete = async () => {
     const { id, type } = confirmDelete;
+    if (type === 'custom-norm') {
+      return handleDeleteCustom();
+    }
     try {
-      const url = type === 'documento' 
-        ? `http://localhost:8000/api/empresas/matriz-legal/documentos/${id}`
-        : `http://localhost:8000/api/empresas/matriz-legal/clear-evidence/${id}`;
-      
-      const res = await fetch(url, { method: type === 'documento' ? 'DELETE' : 'POST' });
+      const endpoint = type === 'documento'
+        ? `/empresas/matriz-legal/documentos/${id}`
+        : `/empresas/matriz-legal/clear-evidence/${id}`;
+
+      const res = await api(endpoint, { method: type === 'documento' ? 'DELETE' : 'POST' });
       if (res.ok) {
         setConfirmDelete({ show: false, id: null, type: null });
         fetchData();
@@ -144,9 +147,9 @@ export default function MatrizLegal({ profile }) {
     formData.append('archivo', uploadFile);
 
     try {
-      const res = await fetch(`http://localhost:8000/api/empresas/${empresaId}/matriz-legal/upload-documento`, {
+      const res = await apiForm(`/empresas/${empresaId}/matriz-legal/upload-documento`, {
         method: 'POST',
-        body: formData
+        body: formData,
       });
       if (res.ok) {
         alert("Matriz anexada y procesada. Se han migrado las normas aplicables al Inventario Maestro.");
@@ -202,9 +205,7 @@ export default function MatrizLegal({ profile }) {
     });
 
     try {
-      const res = await fetch(`http://localhost:8000/api/empresas/${empresaId}/matriz-legal/discover`, {
-        method: 'POST'
-      });
+      const res = await api(`/empresas/${empresaId}/matriz-legal/discover`, { method: 'POST' });
       const data = await res.json();
 
       // Después de que el backend termine, cambiar al tab biblioteca
@@ -231,15 +232,43 @@ export default function MatrizLegal({ profile }) {
   const handleAddCustom = async (e) => {
     e.preventDefault();
     try {
-      const res = await fetch('http://localhost:8000/api/empresas/matriz-legal/custom', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...customNorm, empresa_id: empresaId })
+      const isEditing = editingCustomId !== null;
+      const endpoint = isEditing
+        ? `/empresas/matriz-legal/custom/${editingCustomId}`
+        : '/empresas/matriz-legal/custom';
+      const res = await api(endpoint, {
+        method: isEditing ? 'PUT' : 'POST',
+        body: JSON.stringify({ ...customNorm, empresa_id: empresaId }),
       });
       if (res.ok) {
-        alert("Norma personalizada agregada.");
         setShowCustomModal(false);
-        setCustomNorm({ norma: '', titulo: '', observaciones: '', area: 'SST' });
+        setCustomNorm({ norma: '', titulo: '', observaciones: '', area: 'SST', cumplimiento: 'pendiente' });
+        setEditingCustomId(null);
+        fetchData();
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const handleEditCustom = (item) => {
+    setCustomNorm({
+      norma: item.norma || '',
+      titulo: item.title || '',
+      observaciones: item.observaciones || '',
+      area: item.area || 'SST',
+      cumplimiento: item.cumplimiento || 'pendiente',
+    });
+    setEditingCustomId(item.id);
+    setShowCustomModal(true);
+  };
+
+  const handleDeleteCustom = async () => {
+    const { id } = confirmDelete;
+    try {
+      const res = await api(`/empresas/matriz-legal/custom/${id}`, { method: 'DELETE' });
+      if (res.ok) {
+        setConfirmDelete({ show: false, id: null, type: null });
         fetchData();
       }
     } catch (err) {
@@ -262,9 +291,9 @@ export default function MatrizLegal({ profile }) {
     formData.append('evidencia', evidenceFile);
 
     try {
-      const res = await fetch(`http://localhost:8000/api/empresas/matriz-legal/upload-evidence/${evidenceItem.id}`, {
+      const res = await apiForm(`/empresas/matriz-legal/upload-evidence/${evidenceItem.id}`, {
         method: 'POST',
-        body: formData
+        body: formData,
       });
       if (res.ok) {
         alert("Evidencia cargada correctamente.");
@@ -280,17 +309,11 @@ export default function MatrizLegal({ profile }) {
     }
   };
 
-  const handleViewEvidence = async (item) => {
-    try {
-      const res = await fetch(`http://localhost:8000/api/empresas/matriz-legal/evidence/${item.id}`);
-      const data = await res.json();
-      if (data.evidencia_url) {
-        window.open(data.evidencia_url, '_blank');
-      } else {
-        alert("No hay evidencia cargada para este item.");
-      }
-    } catch (err) {
-      console.error(err);
+  const handleViewEvidence = (item) => {
+    if (item.evidencia_url) {
+      window.open(item.evidencia_url, '_blank');
+    } else {
+      alert("No hay evidencia cargada para este item.");
     }
   };
 
@@ -482,16 +505,28 @@ export default function MatrizLegal({ profile }) {
                         value={item.cumplimiento || 'pendiente'}
                         onChange={async (e) => {
                           try {
-                            await fetch('http://localhost:8000/api/empresas/matriz-legal/add', {
-                              method: 'POST',
-                              headers: { 'Content-Type': 'application/json' },
-                              body: JSON.stringify({
-                                empresa_id: empresaId,
-                                alerta_id: item.alerta_id,
-                                cumplimiento: e.target.value,
-                                observaciones: item.observaciones || ''
-                              })
-                            });
+                            if (item.isCustom) {
+                              await api(`/empresas/matriz-legal/custom/${item.id}`, {
+                                method: 'PUT',
+                                body: JSON.stringify({
+                                  norma: item.norma,
+                                  titulo: item.title,
+                                  cumplimiento: e.target.value,
+                                  observaciones: item.observaciones || '',
+                                  area: item.area,
+                                }),
+                              });
+                            } else {
+                              await api('/empresas/matriz-legal/add', {
+                                method: 'POST',
+                                body: JSON.stringify({
+                                  empresa_id: empresaId,
+                                  alerta_id: item.alerta_id,
+                                  cumplimiento: e.target.value,
+                                  observaciones: item.observaciones || '',
+                                }),
+                              });
+                            }
                             fetchData();
                           } catch(err) { console.error(err); }
                         }}
@@ -570,6 +605,24 @@ export default function MatrizLegal({ profile }) {
                           Integrar
                         </button>
                       )}
+                      {item.isCustom && (activeTab === 'mi-matriz' || activeTab === 'integral') && (
+                        <>
+                          <button
+                            onClick={() => handleEditCustom(item)}
+                            className="p-2 text-amber-600 bg-amber-50 rounded-xl hover:bg-amber-600 hover:text-white transition-all"
+                            title="Editar norma"
+                          >
+                            <Pencil className="w-4 h-4" />
+                          </button>
+                          <button
+                            onClick={() => setConfirmDelete({ show: true, id: item.id, type: 'custom-norm' })}
+                            className="p-2 text-rose-600 bg-rose-50 rounded-xl hover:bg-rose-600 hover:text-white transition-all"
+                            title="Eliminar norma"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </>
+                      )}
                     </div>
                   </td>
                 </tr>
@@ -624,8 +677,10 @@ export default function MatrizLegal({ profile }) {
               </div>
               <h3 className="text-2xl font-black text-gray-900 mb-3 tracking-tighter">¿Eliminar registro?</h3>
               <p className="text-gray-500 text-sm mb-8 leading-relaxed font-medium">
-                {confirmDelete.type === 'documento' 
-                  ? "Esta acción borrará físicamente el archivo del servidor y su registro de auditoría. Es irreversible." 
+                {confirmDelete.type === 'documento'
+                  ? "Esta acción borrará físicamente el archivo del servidor y su registro de auditoría. Es irreversible."
+                  : confirmDelete.type === 'custom-norm'
+                  ? "Esta norma manual será eliminada permanentemente del Inventario Maestro. Esta acción no se puede deshacer."
                   : "Se procederá a limpiar la evidencia cargada, dejando el requisito listo para una nueva carga Correcta."}
               </p>
               <div className="flex space-x-3">
@@ -726,17 +781,18 @@ export default function MatrizLegal({ profile }) {
              <form onSubmit={handleAddCustom}>
                <div className="p-8 border-b border-gray-100 flex justify-between items-center">
                  <h3 className="text-2xl font-black text-gray-800 tracking-tighter flex items-center">
-                   <Plus className="w-6 h-6 mr-3 text-amber-600" /> Nueva Norma Manual
+                   {editingCustomId ? <Pencil className="w-6 h-6 mr-3 text-amber-600" /> : <Plus className="w-6 h-6 mr-3 text-amber-600" />}
+                   {editingCustomId ? 'Editar Norma Manual' : 'Nueva Norma Manual'}
                  </h3>
-                 <button type="button" onClick={() => setShowCustomModal(false)} className="p-2 hover:bg-200 rounded-full transition"><X className="w-6 h-6" /></button>
+                 <button type="button" onClick={() => { setShowCustomModal(false); setEditingCustomId(null); setCustomNorm({ norma: '', titulo: '', observaciones: '', area: 'SST', cumplimiento: 'pendiente' }); }} className="p-2 hover:bg-gray-200 rounded-full transition"><X className="w-6 h-6" /></button>
                </div>
                <div className="p-8 space-y-5">
                   <div className="grid grid-cols-2 gap-5">
                     <div>
                       <label className="block text-[10px] font-black text-gray-400 uppercase mb-2 ml-1 tracking-widest">Norma / Código</label>
-                      <input 
-                        type="text" 
-                        placeholder="Ej: Resolución 0312" 
+                      <input
+                        type="text"
+                        placeholder="Ej: Resolución 0312"
                         required
                         value={customNorm.norma}
                         onChange={(e) => setCustomNorm({...customNorm, norma: e.target.value})}
@@ -745,7 +801,7 @@ export default function MatrizLegal({ profile }) {
                     </div>
                     <div>
                       <label className="block text-[10px] font-black text-gray-400 uppercase mb-2 ml-1 tracking-widest">Área Aplicable</label>
-                      <select 
+                      <select
                         value={customNorm.area}
                         onChange={(e) => setCustomNorm({...customNorm, area: e.target.value})}
                         className="w-full px-5 py-3.5 bg-gray-50 border border-gray-100 rounded-2xl outline-none focus:ring-2 focus:ring-amber-500 font-bold"
@@ -753,15 +809,18 @@ export default function MatrizLegal({ profile }) {
                         <option value="SST">SST</option>
                         <option value="Ambiental">Ambiental</option>
                         <option value="Calidad">Calidad</option>
+                        <option value="Laboral">Laboral</option>
+                        <option value="Tributaria">Tributaria</option>
+                        <option value="Privacidad">Privacidad</option>
                         <option value="Otros">Otros</option>
                       </select>
                     </div>
                   </div>
                   <div>
                     <label className="block text-[10px] font-black text-gray-400 uppercase mb-2 ml-1 tracking-widest">Título de la Regulación</label>
-                    <input 
-                      type="text" 
-                      placeholder="Ej: Estándares Mínimos del SG-SST" 
+                    <input
+                      type="text"
+                      placeholder="Ej: Estándares Mínimos del SG-SST"
                       required
                       value={customNorm.titulo}
                       onChange={(e) => setCustomNorm({...customNorm, titulo: e.target.value})}
@@ -769,10 +828,29 @@ export default function MatrizLegal({ profile }) {
                     />
                   </div>
                   <div>
+                    <label className="block text-[10px] font-black text-gray-400 uppercase mb-2 ml-1 tracking-widest">Estado de Cumplimiento</label>
+                    <div className="grid grid-cols-3 gap-3">
+                      {['pendiente', 'cumple', 'no_cumple'].map(status => (
+                        <button
+                          key={status}
+                          type="button"
+                          onClick={() => setCustomNorm({...customNorm, cumplimiento: status})}
+                          className={`py-2.5 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all border-2 ${
+                            customNorm.cumplimiento === status
+                              ? 'border-amber-500 bg-amber-500 text-white shadow-lg shadow-amber-100'
+                              : 'border-gray-100 text-gray-400 hover:border-amber-200 hover:text-amber-600'
+                          }`}
+                        >
+                          {status.replace('_', ' ')}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <div>
                     <label className="block text-[10px] font-black text-gray-400 uppercase mb-2 ml-1 tracking-widest">Resumen de Aplicabilidad</label>
-                    <textarea 
-                      rows="4"
-                      placeholder="Descripción detallada de por qué esta norma le aplica a la empresa hoy..." 
+                    <textarea
+                      rows="3"
+                      placeholder="Descripción detallada de por qué esta norma le aplica a la empresa hoy..."
                       value={customNorm.observaciones}
                       onChange={(e) => setCustomNorm({...customNorm, observaciones: e.target.value})}
                       className="w-full px-5 py-3.5 bg-gray-50 border border-gray-100 rounded-2xl outline-none focus:ring-2 focus:ring-amber-500 resize-none font-bold"
@@ -780,8 +858,10 @@ export default function MatrizLegal({ profile }) {
                   </div>
                </div>
                <div className="p-8 pt-0 flex space-x-3">
-                  <button type="button" onClick={() => setShowCustomModal(false)} className="flex-1 py-4 text-gray-600 font-black rounded-3xl hover:bg-gray-100 transition">Cancelar</button>
-                  <button type="submit" className="flex-1 py-4 bg-amber-500 text-white font-black rounded-3xl hover:bg-amber-600 transition shadow-lg shadow-amber-200">Guardar en Maestro</button>
+                  <button type="button" onClick={() => { setShowCustomModal(false); setEditingCustomId(null); setCustomNorm({ norma: '', titulo: '', observaciones: '', area: 'SST', cumplimiento: 'pendiente' }); }} className="flex-1 py-4 text-gray-600 font-black rounded-3xl hover:bg-gray-100 transition">Cancelar</button>
+                  <button type="submit" className="flex-1 py-4 bg-amber-500 text-white font-black rounded-3xl hover:bg-amber-600 transition shadow-lg shadow-amber-200">
+                    {editingCustomId ? 'Actualizar Norma' : 'Guardar en Maestro'}
+                  </button>
                </div>
              </form>
           </div>

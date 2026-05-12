@@ -45,6 +45,8 @@ Route::get('/empresas/{id}/matriz-legal', [AlertaController::class, 'matrizLegal
 Route::get('/empresas/{id}/biblioteca-legal', [AlertaController::class, 'biblioteca']);
 Route::post('/empresas/matriz-legal/add', [AlertaController::class, 'addToMatrix']);
 Route::post('/empresas/matriz-legal/custom', [AlertaController::class, 'addCustomNorm']);
+Route::put('/empresas/matriz-legal/custom/{id}', [AlertaController::class, 'updateCustomNorm']);
+Route::delete('/empresas/matriz-legal/custom/{id}', [AlertaController::class, 'destroyCustomNorm']);
 Route::get('/empresas/{id}/matriz-legal/consolidado', [AlertaController::class, 'consolidado']);
 Route::get('/empresas/{id}/matriz-legal/documentos', [AlertaController::class, 'listDocuments']);
 Route::post('/empresas/{id}/matriz-legal/upload-documento', [AlertaController::class, 'uploadDocument']);

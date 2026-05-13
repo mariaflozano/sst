@@ -10,6 +10,7 @@ class Auditoria extends Model
     protected $fillable = [
         'empresa_id',
         'codigo',
+        'proceso_audit',
         'alcance',
         'auditor_nombre',
         'auditor_perfil',
@@ -31,6 +32,6 @@ class Auditoria extends Model
 
     public function hallazgos_legales()
     {
-        return $this->hasMany(AuditoriaHallazgo::class, 'auditoria_id');
+        return $this->hasMany(AuditoriaHallazgo::class, 'auditoria_id')->with('tareas');
     }
 }

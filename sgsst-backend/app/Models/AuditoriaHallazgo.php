@@ -14,13 +14,16 @@ class AuditoriaHallazgo extends Model
         'descripcion',
         'requisito_incumplido',
         'estado',
-        'plan_accion',
-        'responsable',
-        'fecha_compromiso',
+        'fecha_limite_cierre',
     ];
 
     public function auditoria()
     {
         return $this->belongsTo(Auditoria::class);
+    }
+
+    public function tareas()
+    {
+        return $this->hasMany(TareaHallazgo::class, 'hallazgo_id')->orderBy('created_at');
     }
 }

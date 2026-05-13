@@ -168,6 +168,7 @@ export default function MatrizLegal({ profile }) {
       case 'mi-matriz': return miMatriz;
       case 'biblioteca': return biblioteca;
       case 'integral': return consolidado;
+      case 'anexos': return documentos;
       default: return [];
     }
   };
@@ -443,12 +444,76 @@ export default function MatrizLegal({ profile }) {
             </button>
           )}
           <div className="text-xs font-bold text-gray-400 uppercase tracking-widest">
-            {filteredItems.length} Registros
+            {activeTab === 'anexos' ? documentos.length : filteredItems.length} Registros
           </div>
         </div>
       </div>
 
+      {/* Anexos Legados — tabla de documentos */}
+      {activeTab === 'anexos' && (
+        <div className="bg-white border border-gray-200 shadow-sm overflow-hidden rounded-b-3xl">
+          {loading ? (
+            <div className="py-20 text-center">
+              <div className="inline-block animate-spin rounded-full h-8 w-8 border-4 border-emerald-500 border-t-transparent mb-4"></div>
+              <p className="text-gray-400 font-medium">Cargando documentos...</p>
+            </div>
+          ) : documentos.length === 0 ? (
+            <div className="py-20 text-center text-gray-400 font-medium">
+              No hay documentos legales anexados aún.
+            </div>
+          ) : (
+            <table className="w-full text-left">
+              <thead>
+                <tr className="bg-gray-50/80 border-b border-gray-100 text-gray-400 text-[10px] uppercase font-black tracking-widest">
+                  <th className="px-8 py-5">Nombre del Documento</th>
+                  <th className="px-6 py-5 text-center">Fecha de Carga</th>
+                  <th className="px-6 py-5 text-center">Acciones</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-50">
+                {documentos.map(doc => (
+                  <tr key={doc.id} className="hover:bg-emerald-50/20 transition-colors group">
+                    <td className="px-8 py-5">
+                      <div className="flex items-center">
+                        <div className="w-9 h-9 bg-blue-50 text-blue-600 rounded-xl flex items-center justify-center mr-3 shrink-0">
+                          <FileText className="w-4 h-4" />
+                        </div>
+                        <span className="text-sm font-bold text-gray-800">{doc.nombre}</span>
+                      </div>
+                    </td>
+                    <td className="px-6 py-5 text-center">
+                      <span className="text-xs font-semibold text-gray-500">{doc.fecha_carga || doc.created_at}</span>
+                    </td>
+                    <td className="px-6 py-5 text-center">
+                      <div className="flex justify-center items-center space-x-2">
+                        <a
+                          href={doc.url}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="p-2 text-blue-600 bg-blue-50 rounded-xl hover:bg-blue-600 hover:text-white transition-all"
+                          title="Ver documento"
+                        >
+                          <Eye className="w-4 h-4" />
+                        </a>
+                        <button
+                          onClick={() => setConfirmDelete({ show: true, id: doc.id, type: 'documento' })}
+                          className="p-2 text-rose-600 bg-rose-50 rounded-xl hover:bg-rose-600 hover:text-white transition-all"
+                          title="Eliminar documento"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      )}
+
       {/* Main Table Content con Paginación */}
+      {activeTab !== 'anexos' && (
       <div className="bg-white border border-gray-200 shadow-sm overflow-hidden rounded-b-3xl">
         <div className="overflow-x-auto">
           <table className="w-full text-left">
@@ -667,6 +732,7 @@ export default function MatrizLegal({ profile }) {
           </div>
         )}
       </div>
+      )}
 
       {/* Confirmation Modal (Point 4) */}
       {confirmDelete.show && (

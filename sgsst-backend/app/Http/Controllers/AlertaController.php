@@ -226,7 +226,14 @@ class AlertaController extends Controller
     {
         $docs = DocumentoLegal::where('empresa_id', $empresaId)
             ->orderBy('created_at', 'desc')
-            ->get();
+            ->get()
+            ->map(fn($doc) => [
+                'id'          => $doc->id,
+                'nombre'      => $doc->nombre,
+                'url'         => Storage::disk('public')->url($doc->url),
+                'fecha_carga' => $doc->fecha_carga,
+                'created_at'  => $doc->created_at->format('Y-m-d'),
+            ]);
         return response()->json($docs);
     }
 

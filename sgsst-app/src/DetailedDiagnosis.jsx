@@ -209,7 +209,7 @@ const loadFromStorage = (empresaId) => {
 const saveToStorage = (empresaId, data) => {
   try {
     localStorage.setItem(storageKey(empresaId), JSON.stringify(data));
-  } catch (e) { console.error('Error guardando evaluación:', e); }
+  } catch (e) { /* silent */ }
 };
 
 // Leer estado de evidencias de Gestión Documental
@@ -258,8 +258,9 @@ export default function DetailedDiagnosis({ profile, onClose }) {
   const standardsList = getStandardsList(stds);
   const empresaId = profile?.id;
 
-  // Estado principal
-  const [allEvals, setAllEvals] = useState(() => loadFromStorage(empresaId));
+  // Estado principal — localStorage como caché inicial mientras carga el backend
+  const [allEvals, setAllEvals]     = useState(() => loadFromStorage(empresaId));
+  const [loadingEvals, setLoadingEvals] = useState(true);
   const [selectedYear, setSelectedYear] = useState(() => {
     const saved = loadFromStorage(empresaId);
     const open = Object.keys(saved).filter(y => saved[y].estado === 'abierta').map(Number);
@@ -279,44 +280,41 @@ export default function DetailedDiagnosis({ profile, onClose }) {
   const [smartFromPHVA, setSmartFromPHVA] = useState(true);
   const [newYearTarget, setNewYearTarget] = useState(YEAR_NOW + 1);
 
-  // --- SINCRONIZACIÓN INICIAL CON EL BACKEND ---
+  // --- CARGA DESDE BACKEND (fuente principal) ---
   useEffect(() => {
-    if (!empresaId) return;
-    api(`/empresas/${empresaId}/progreso`)
-      .then(res => res.json())
+    if (!empresaId) { setLoadingEvals(false); return; }
+    setLoadingEvals(true);
+    api(`/empresas/${empresaId}/evaluaciones`)
+      .then(res => res.ok ? res.json() : {})
       .then(data => {
-        if (!Array.isArray(data)) return;
-        const newCals = {};
-        const reverseMap = { cumplido: 'cumple', no_cumple: 'no_cumple', no_aplica: 'no_aplica' };
-        data.forEach(item => {
-           if(item.estado && item.estado !== 'pendiente') {
-             newCals[item.estandar_id] = reverseMap[item.estado] || item.estado;
-           }
-        });
-        
-        setAllEvals(prev => {
-          const yearToUpdate = selectedYear || YEAR_NOW;
-          const currentEvals = prev[yearToUpdate]?.calificaciones || {};
-          
-          // Solo actualizamos si hay diferencias para evitar re-renders infinitos
-          const hasChanges = Object.keys(newCals).some(key => newCals[key] !== currentEvals[key]);
-          
-          if (hasChanges) {
-            const updated = {
-              ...prev,
-              [yearToUpdate]: {
-                 ...(prev[yearToUpdate] || { estado: 'abierta', fecha_apertura: new Date().toLocaleDateString('es-CO'), fecha_cierre: null }),
-                 calificaciones: { ...currentEvals, ...newCals } // Backend tiene prioridad
-              }
+        if (data && Object.keys(data).length > 0) {
+          // Convertir calificaciones de objeto plano a objeto indexado por estandar_id numérico
+          const normalized = {};
+          Object.entries(data).forEach(([anio, val]) => {
+            normalized[parseInt(anio)] = {
+              estado:         val.estado,
+              fecha_apertura: val.fecha_apertura,
+              fecha_cierre:   val.fecha_cierre,
+              calificaciones: Object.fromEntries(
+                Object.entries(val.calificaciones || {}).map(([k, v]) => [parseInt(k), v])
+              ),
             };
-            saveToStorage(empresaId, updated);
-            return updated;
+          });
+          setAllEvals(normalized);
+          saveToStorage(empresaId, normalized);
+
+          // Ajustar año seleccionado al más reciente abierto
+          const open = Object.keys(normalized).map(Number).filter(y => normalized[y].estado === 'abierta');
+          if (open.length > 0) setSelectedYear(Math.max(...open));
+          else {
+            const all = Object.keys(normalized).map(Number);
+            if (all.length > 0) setSelectedYear(Math.max(...all));
           }
-          return prev;
-        });
+        }
       })
-      .catch(e => console.warn("Error cargando el progreso desde backend:", e));
-  }, [empresaId, selectedYear]);
+      .catch(e => console.warn('Error cargando evaluaciones:', e))
+      .finally(() => setLoadingEvals(false));
+  }, [empresaId]);
 
   // Calcula el primer año que NO existe en allEvals y está en el rango permitido
   const getNextAvailableYear = () => {
@@ -331,20 +329,22 @@ export default function DetailedDiagnosis({ profile, onClose }) {
 
   // Inicializar año si no existe
   useEffect(() => {
-    if (!allEvals[selectedYear]) {
+    if (!allEvals[selectedYear] && !loadingEvals) {
+      const fechaApertura = new Date().toLocaleDateString('es-CO');
       const updated = {
         ...allEvals,
-        [selectedYear]: {
-          estado: 'abierta',
-          fecha_apertura: new Date().toLocaleDateString('es-CO'),
-          fecha_cierre: null,
-          calificaciones: {},
-        },
+        [selectedYear]: { estado: 'abierta', fecha_apertura: fechaApertura, fecha_cierre: null, calificaciones: {} },
       };
       setAllEvals(updated);
       saveToStorage(empresaId, updated);
+      if (empresaId) {
+        api('/evaluaciones/anio', {
+          method: 'POST',
+          body: JSON.stringify({ empresa_id: empresaId, anio: selectedYear, estado: 'abierta', fecha_apertura: fechaApertura }),
+        }).catch(e => console.warn('Error inicializando año en backend:', e));
+      }
     }
-  }, [selectedYear]);
+  }, [selectedYear, loadingEvals]);
 
   const currentEval = allEvals[selectedYear] || { estado: 'abierta', calificaciones: {} };
   const isClosed = currentEval.estado === 'cerrada';
@@ -365,19 +365,17 @@ export default function DetailedDiagnosis({ profile, onClose }) {
     setAllEvals(updated);
     saveToStorage(empresaId, updated);
 
-    // Intento opcional de guardar en backend
     try {
-      const estadoMap = { cumple: 'cumplido', no_cumple: 'no_cumple', no_aplica: 'no_aplica' };
-      await api('/progreso-estandar', {
+      await api('/evaluaciones/calificar', {
         method: 'POST',
         body: JSON.stringify({
           empresa_id: empresaId,
-          estandar_id: stdId,
-          estado: estadoMap[rating],
           anio: selectedYear,
+          estandar_id: stdId,
+          calificacion: rating,
         }),
       });
-    } catch { /* Backend opcional */ }
+    } catch (e) { console.warn('Error guardando calificación:', e); }
   }, [allEvals, selectedYear, currentEval, calificaciones, isClosed, empresaId]);
 
   // ── Cerrar evaluación del año ─────────────────────────────────────────────
@@ -409,35 +407,34 @@ export default function DetailedDiagnosis({ profile, onClose }) {
     saveToStorage(empresaId, updated);
     setShowCloseModal(false);
 
-     // Sincronización Forzosa con Base de Datos
-     const estadoMap = { cumple: 'cumplido', no_cumple: 'no_cumple', no_aplica: 'no_aplica' };
-     for (const [sId, rating] of Object.entries(calificaciones)) {
-        try {
-            await api('/progreso-estandar', {
-              method: 'POST',
-              body: JSON.stringify({
-                empresa_id: empresaId,
-                estandar_id: parseInt(sId),
-                estado: estadoMap[rating]
-              })
-            });
-        } catch (e) { console.error("Error sincronizando estándar", sId, e); }
-     }
+    // Sincronizar calificaciones y cerrar año en backend
+    try {
+      await api('/evaluaciones/bulk', {
+        method: 'POST',
+        body: JSON.stringify({ empresa_id: empresaId, anio: selectedYear, calificaciones }),
+      });
+      await api('/evaluaciones/anio', {
+        method: 'POST',
+        body: JSON.stringify({
+          empresa_id: empresaId,
+          anio: selectedYear,
+          estado: 'cerrada',
+          fecha_cierre: new Date().toLocaleDateString('es-CO'),
+        }),
+      });
+    } catch (e) { console.error('Error cerrando evaluación en backend:', e); }
 
-     // Disparar Generación de Plan Anual
-     try {
-       await api('/plan-anual/generar', {
-         method: 'POST',
-         body: JSON.stringify({ empresa_id: empresaId })
-       });
-       console.log("Plan Anual generado exitosamente desde diagnóstico");
-     } catch (e) {
-       console.error("Error generando Plan Anual", e);
-     }
-   };
+    // Disparar Generación de Plan Anual
+    try {
+      await api('/plan-anual/generar', {
+        method: 'POST',
+        body: JSON.stringify({ empresa_id: empresaId }),
+      });
+    } catch (e) { console.error('Error generando Plan Anual:', e); }
+  };
 
   // ── Abrir nueva evaluación anual (con inteligencia de Gestión Documental) ──
-  const handleOpenNewYear = () => {
+  const handleOpenNewYear = async () => {
     let baseCals = yearToCopy ? { ...calificaciones } : {};
 
     if (smartFromPHVA) {
@@ -473,6 +470,25 @@ export default function DetailedDiagnosis({ profile, onClose }) {
     saveToStorage(empresaId, updated);
     setSelectedYear(newYearTarget);
     setShowNewYearModal(false);
+
+    // Persistir nuevo año en backend
+    try {
+      await api('/evaluaciones/anio', {
+        method: 'POST',
+        body: JSON.stringify({
+          empresa_id: empresaId,
+          anio: newYearTarget,
+          estado: 'abierta',
+          fecha_apertura: new Date().toLocaleDateString('es-CO'),
+        }),
+      });
+      if (Object.keys(baseCals).length > 0) {
+        await api('/evaluaciones/bulk', {
+          method: 'POST',
+          body: JSON.stringify({ empresa_id: empresaId, anio: newYearTarget, calificaciones: baseCals }),
+        });
+      }
+    } catch (e) { console.warn('Error persistiendo nuevo año en backend:', e); }
   };
 
   // ── Filtro de búsqueda ────────────────────────────────────────────────────

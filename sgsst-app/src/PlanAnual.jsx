@@ -19,8 +19,11 @@ import {
   Activity,
   Settings,
   PieChart,
-  BarChart3
+  BarChart3,
+  ShieldAlert,
+  ShieldCheck,
 } from 'lucide-react';
+import { api, apiForm, SGSST_URL } from './services/api';
 
 const etapas = [
   { id: 'planear', title: 'Planear', icon: ClipboardList, color: 'text-blue-500', bg: 'bg-blue-50', borderColor: 'border-blue-500' },
@@ -71,24 +74,26 @@ export default function PlanAnual({ profile }) {
   const [resumen, setResumen] = useState(null);
   const [saving, setSaving] = useState(false);
   const [generating, setGenerating] = useState(false);
+  const [diagInfo, setDiagInfo] = useState(null);
 
-  // Cargar actividades
+  // Cargar actividades, resumen e info de diagnóstico
   useEffect(() => {
     if (!profile?.id) return;
     fetchActividades();
     fetchResumen();
+    loadDiagInfo();
   }, [profile?.id]);
 
   const fetchActividades = async () => {
     setLoading(true);
     try {
-      const res = await fetch(`http://localhost:8000/api/empresas/${profile.id}/plan-anual`);
+      const res = await api(`/empresas/${profile.id}/plan-anual`);
       if (res.ok) {
         const data = await res.json();
-        setActividades(data);
+        setActividades(Array.isArray(data) ? data : (data.data ?? []));
       }
     } catch (err) {
-      console.error("Error al cargar actividades:", err);
+      console.error('Error al cargar actividades:', err);
     } finally {
       setLoading(false);
     }
@@ -96,14 +101,50 @@ export default function PlanAnual({ profile }) {
 
   const fetchResumen = async () => {
     try {
-      const res = await fetch(`http://localhost:8000/api/empresas/${profile.id}/plan-anual/resumen`);
-      if (res.ok) {
-        const data = await res.json();
-        setResumen(data);
-      }
+      const res = await api(`/empresas/${profile.id}/plan-anual/resumen`);
+      if (res.ok) setResumen(await res.json());
     } catch (err) {
-      console.error("Error al cargar resumen:", err);
+      console.error('Error al cargar resumen:', err);
     }
+  };
+
+  const loadDiagInfo = async () => {
+    try {
+      const res = await api(`/empresas/${profile.id}/evaluaciones`);
+      const data = res.ok ? await res.json() : {};
+      const closed = Object.entries(data)
+        .filter(([, v]) => v.estado === 'cerrada')
+        .sort(([a], [b]) => parseInt(b) - parseInt(a));
+
+      if (closed.length === 0) { setDiagInfo({ exists: false }); return; }
+
+      const [anioStr, val] = closed[0];
+      const anio = parseInt(anioStr);
+      const fechaStr = val.fecha_cierre || val.fecha_apertura;
+
+      let diagDate;
+      if (fechaStr?.includes('/')) {
+        const [d, m, y] = fechaStr.split('/');
+        diagDate = new Date(parseInt(y), parseInt(m) - 1, parseInt(d));
+      } else if (fechaStr) {
+        diagDate = new Date(fechaStr);
+      } else {
+        diagDate = new Date(anio, 0, 1);
+      }
+
+      const vencimiento = new Date(diagDate);
+      vencimiento.setFullYear(vencimiento.getFullYear() + 1);
+      const isValid = new Date() <= vencimiento;
+
+      setDiagInfo({
+        exists: true,
+        anio,
+        fechaStr,
+        vencimientoStr: vencimiento.toLocaleDateString('es-CO'),
+        isValid,
+        isExpired: !isValid,
+      });
+    } catch { setDiagInfo({ exists: false }); }
   };
 
   const handleInputChange = (e) => {
@@ -124,22 +165,17 @@ export default function PlanAnual({ profile }) {
     setSaving(true);
     try {
       const method = editingId ? 'PUT' : 'POST';
-      const url = editingId
-        ? `http://localhost:8000/api/plan-anual/${editingId}`
-        : 'http://localhost:8000/api/plan-anual';
+      const endpoint = editingId ? `/plan-anual/${editingId}` : '/plan-anual';
 
       const payload = {
         ...formData,
+        phva_etapa: formData.phva_etapa.charAt(0).toUpperCase() + formData.phva_etapa.slice(1),
         empresa_id: profile.id,
         presupuesto: formData.presupuesto ? parseFloat(formData.presupuesto) : null,
         valor_inicial: formData.valor_inicial ? parseFloat(formData.valor_inicial) : null,
       };
 
-      const res = await fetch(url, {
-        method,
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
+      const res = await api(endpoint, { method, body: JSON.stringify(payload) });
 
       if (res.ok) {
         setShowForm(false);
@@ -184,45 +220,56 @@ export default function PlanAnual({ profile }) {
   const handleDelete = async (id) => {
     if (!confirm('¿Estás seguro de eliminar esta actividad?')) return;
     try {
-      await fetch(`http://localhost:8000/api/plan-anual/${id}`, { method: 'DELETE' });
+      await api(`/plan-anual/${id}`, { method: 'DELETE' });
       fetchActividades();
       fetchResumen();
     } catch (err) {
-      console.error("Error al eliminar:", err);
+      console.error('Error al eliminar:', err);
     }
   };
 
   const handleEstadoChange = async (id, nuevoEstado) => {
     try {
-      await fetch(`http://localhost:8000/api/plan-anual/${id}`, {
+      await api(`/plan-anual/${id}`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ estado: nuevoEstado }),
       });
       fetchActividades();
       fetchResumen();
     } catch (err) {
-      console.error("Error al actualizar estado:", err);
+      console.error('Error al actualizar estado:', err);
     }
   };
 
   const handleGenerateFromDiagnosis = async () => {
     if (!profile?.id) return;
-    if (!confirm('Se generarán actividades para todos los estándares NO CUMPLE del diagnóstico. ¿Continuar?')) return;
+
+    if (diagInfo !== null && !diagInfo.exists) {
+      alert('No tiene un diagnóstico inicial completado. Realice y cierre la Evaluación Inicial primero.');
+      return;
+    }
+    if (diagInfo?.isExpired) {
+      alert(`El diagnóstico del año ${diagInfo.anio} venció el ${diagInfo.vencimientoStr}.\nDebe realizar un nuevo diagnóstico en la Evaluación Inicial.`);
+      return;
+    }
+
+    const msg = diagInfo?.exists
+      ? `Se generarán actividades para los estándares NO CUMPLE del diagnóstico ${diagInfo.anio} (válido hasta ${diagInfo.vencimientoStr}).\n¿Continuar?`
+      : 'Se generarán actividades para los estándares NO CUMPLE del diagnóstico. ¿Continuar?';
+    if (!confirm(msg)) return;
 
     setGenerating(true);
     try {
-      const res = await fetch('http://localhost:8000/api/plan-anual/generar', {
+      const res = await api('/plan-anual/generar', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ empresa_id: profile.id }),
       });
       const data = await res.json();
       alert(data.message);
-      fetchActividades();
-      fetchResumen();
+      if (res.ok) { fetchActividades(); fetchResumen(); }
     } catch (err) {
-      console.error("Error al generar:", err);
+      console.error('Error al generar:', err);
+      alert('Error al conectar con el servidor.');
     } finally {
       setGenerating(false);
     }
@@ -242,22 +289,16 @@ export default function PlanAnual({ profile }) {
     formDataUpload.append('archivo', file);
 
     try {
-      const res = await fetch('http://localhost:8000/api/plan-anual/upload', {
-        method: 'POST',
-        body: formDataUpload,
-      });
-      if (res.ok) {
-        fetchActividades();
-        fetchResumen();
-      }
+      const res = await apiForm('/plan-anual/upload', { method: 'POST', body: formDataUpload });
+      if (res.ok) { fetchActividades(); fetchResumen(); }
     } catch (err) {
-      console.error("Error al subir evidencia:", err);
+      console.error('Error al subir evidencia:', err);
     }
   };
 
   // Filtros
   const filteredActividades = actividades.filter(a => {
-    const matchTab = activeTab === 'all' || a.phva_etapa === activeTab;
+    const matchTab = activeTab === 'all' || a.phva_etapa?.toLowerCase() === activeTab;
     const matchQuarter = activeQuarter === 'all' || a.trimestre.toString() === activeQuarter;
     const matchSearch = !searchTerm ||
       a.actividad.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -299,14 +340,27 @@ export default function PlanAnual({ profile }) {
           <p className="text-gray-500 mt-1">SG-SST - Gestión de actividades y seguimiento anual</p>
         </div>
         <div className="flex flex-wrap gap-3 mt-4 md:mt-0">
-          <button
-            onClick={handleGenerateFromDiagnosis}
-            disabled={generating}
-            className="px-4 py-2 bg-purple-600 hover:bg-purple-700 disabled:bg-purple-300 text-white font-semibold rounded-xl flex items-center transition-colors shadow-sm"
-          >
-            <TrendingUp className="w-4 h-4 mr-2" />
-            {generating ? 'Generando...' : 'Generar desde Diagnóstico'}
-          </button>
+          <div className="flex flex-col">
+            <button
+              onClick={handleGenerateFromDiagnosis}
+              disabled={generating || diagInfo?.isExpired || (diagInfo !== null && !diagInfo.exists)}
+              className="px-4 py-2 bg-purple-600 hover:bg-purple-700 disabled:bg-gray-300 disabled:cursor-not-allowed text-white font-semibold rounded-xl flex items-center transition-colors shadow-sm"
+            >
+              <TrendingUp className="w-4 h-4 mr-2" />
+              {generating ? 'Generando...' : 'Generar desde Diagnóstico'}
+            </button>
+            {diagInfo !== null && (
+              <span className={`text-xs mt-1 flex items-center gap-1 ${
+                !diagInfo.exists || diagInfo.isExpired ? 'text-red-500' : 'text-green-600'
+              }`}>
+                {!diagInfo.exists
+                  ? <><ShieldAlert className="w-3 h-3" /> Sin diagnóstico inicial</>
+                  : diagInfo.isExpired
+                    ? <><ShieldAlert className="w-3 h-3" /> Venció {diagInfo.vencimientoStr}</>
+                    : <><ShieldCheck className="w-3 h-3" /> Diag. {diagInfo.anio} · válido hasta {diagInfo.vencimientoStr}</>}
+              </span>
+            )}
+          </div>
           <button
             onClick={() => { setFormData(initialFormData); setEditingId(null); setShowForm(true); }}
             className="px-4 py-2 bg-orange-500 hover:bg-orange-600 text-white font-semibold rounded-xl flex items-center transition-colors shadow-sm"
@@ -524,7 +578,7 @@ export default function PlanAnual({ profile }) {
                       <div className="flex justify-end items-center space-x-1 opacity-80 group-hover:opacity-100 transition-opacity">
                         {actividad.url_evidencia && (
                           <a
-                            href={`http://localhost:8000/storage/${actividad.url_evidencia}`}
+                            href={`${SGSST_URL}/storage/${actividad.url_evidencia}`}
                             target="_blank"
                             rel="noopener noreferrer"
                             className="p-1.5 text-purple-600 hover:bg-purple-50 rounded-lg transition-colors"
@@ -918,7 +972,7 @@ export default function PlanAnual({ profile }) {
               </h4>
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                 {etapas.map(etapa => {
-                  const count = resumen.por_etapa[etapa.id] || 0;
+                  const count = resumen.por_etapa[etapa.title] || 0;
                   return (
                     <div key={etapa.id} className={`p-4 rounded-xl border-2 ${etapa.bg} ${etapa.borderColor}`}>
                       <div className={`font-bold ${etapa.color} flex items-center`}>

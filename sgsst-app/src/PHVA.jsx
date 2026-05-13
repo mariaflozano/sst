@@ -5,6 +5,7 @@ import {
   Filter, FolderOpen, ShieldCheck, Info, FileCheck2, FileClock,
   FileX2, PieChart, FileSearch, AlertCircle, Bell,
 } from 'lucide-react';
+import { api, apiForm, SGSST_URL } from './services/api';
 
 const etapas = [
   { id: 'planear', title: 'Planear', desc: 'Evaluación y Planificación', icon: ClipboardList, color: 'text-blue-500', bg: 'bg-blue-50', borderColor: 'border-blue-500' },
@@ -208,7 +209,7 @@ export default function PHVA({ profile }) {
       if (!profile?.id) return;
       setLoading(true);
       try {
-        const response = await fetch(`http://localhost:8000/api/empresas/${profile.id}/progreso`);
+        const response = await api(`/empresas/${profile.id}/progreso`);
         if (response.ok) {
           const progreso = await response.json();
           if (progreso.length > 0) {
@@ -251,7 +252,7 @@ export default function PHVA({ profile }) {
     formData.append('archivo', file);
 
     try {
-      const response = await fetch('http://localhost:8000/api/progreso-estandar/upload', {
+      const response = await apiForm('/progreso-estandar/upload', {
         method: 'POST', body: formData,
       });
       if (response.ok) {
@@ -265,10 +266,12 @@ export default function PHVA({ profile }) {
                 : doc
             );
           });
-          // Guardar en localStorage para que Evaluación Inicial lo lea
           savePHVAStatus(empresaId, docId, 'cumplido');
           return newData;
         });
+      } else {
+        const err = await response.json().catch(() => ({}));
+        alert('Error al subir: ' + (err.message || response.status));
       }
     } catch (err) { console.error('Error al subir archivo:', err); }
     finally { setUploadingId(null); }
@@ -279,9 +282,8 @@ export default function PHVA({ profile }) {
     if (!profile?.id) return;
     if (!confirm('¿Estás seguro de eliminar esta evidencia? El estándar volverá a estado Pendiente.')) return;
     try {
-      const response = await fetch('http://localhost:8000/api/progreso-estandar/delete', {
+      const response = await api('/progreso-estandar/delete', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ empresa_id: profile.id, estandar_id: docId }),
       });
       if (response.ok) {
@@ -598,7 +600,7 @@ export default function PHVA({ profile }) {
                           {/* ── CASO A: Tiene PDF real → Ver + Eliminar + Actualizar PDF ── */}
                           {doc.evidencePath && (
                             <>
-                              <a href={`http://localhost:8000/api/evidencia/ver?path=${encodeURIComponent(doc.evidencePath)}&empresa_id=${profile?.id}`}
+                              <a href={`${SGSST_URL}/api/evidencia/ver?path=${encodeURIComponent(doc.evidencePath)}&empresa_id=${profile?.id}`}
                                 target="_blank" rel="noopener noreferrer"
                                 className="inline-flex items-center px-3 py-1.5 text-blue-600 bg-blue-50 border border-blue-100 rounded-lg hover:bg-blue-600 hover:text-white transition-colors text-xs font-semibold"
                                 title="Ver PDF cargado"

@@ -15,8 +15,18 @@ class CheckTenancy
      */
     public function handle(Request $request, Closure $next): Response
     {
-        // 1. Omitir validación de tenancy en creacion de empresas inicial
+        // 1. Omitir validación de tenancy en endpoints de bootstrap (login/registro)
         if ($request->is('api/empresas') && $request->isMethod('POST')) {
+            return $next($request);
+        }
+
+        // Lookup de empresa por tenant_id durante el login (aún no hay X-Company-ID)
+        if ($request->is('api/mi-empresa') && $request->isMethod('GET')) {
+            return $next($request);
+        }
+
+        // Ver evidencia PDF — se abre en pestaña nueva (sin headers), el controller valida empresa_id por query param
+        if ($request->is('api/evidencia/ver') && $request->isMethod('GET')) {
             return $next($request);
         }
 

@@ -136,8 +136,25 @@ export default function App() {
       return;
     }
 
-    // No existe empresa aún — crearla automáticamente
     setView('loading');
+
+    // 1. Buscar si ya existe empresa para este tenant
+    if (auth.tenant_id) {
+      try {
+        const res = await api(`/mi-empresa?tenant_id=${auth.tenant_id}`);
+        if (res.ok) {
+          const existing = await res.json();
+          if (existing?.id) {
+            localStorage.setItem('sgsst_company_profile', JSON.stringify(existing));
+            setCompanyProfile(existing);
+            setView('dashboard');
+            return;
+          }
+        }
+      } catch { /* sin conexión, intentar crear */ }
+    }
+
+    // 2. Solo crear si realmente no existe
     try {
       const createRes = await api('/empresas', {
         method: 'POST',
@@ -155,10 +172,8 @@ export default function App() {
         const newEmpresa = await createRes.json();
         localStorage.setItem('sgsst_company_profile', JSON.stringify(newEmpresa));
         setCompanyProfile(newEmpresa);
-        setView('dashboard');
-        return;
       }
-    } catch { /* sin conexión con el backend */ }
+    } catch { /* sin conexión */ }
 
     setView('dashboard');
   };
@@ -415,7 +430,7 @@ export default function App() {
            {view === 'formatos' && <BancoFormatos />}
            {view === 'matriz' && <MatrizLegal profile={companyProfile} />}
            {view === 'alertas' && <AlertasNormativas profile={companyProfile} />}
-           {view === 'parametros' && <Parametros profile={companyProfile} onSave={(updated) => setCompanyProfile(updated)} />}
+           {view === 'parametros' && <Parametros profile={companyProfile} onSave={(updated) => { setCompanyProfile(updated); localStorage.setItem('sgsst_company_profile', JSON.stringify(updated)); }} />}
            {view === 'plananual' && <PlanAnual profile={companyProfile} />}
            {view === 'capacitaciones' && <Capacitaciones profile={companyProfile} />}
            {view === 'accidentalidad' && <Accidentalidad companyProfile={companyProfile} />}

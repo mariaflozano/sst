@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import {
+import { 
   Calendar,
   Plus,
   Search,
@@ -19,14 +19,16 @@ import {
   Activity,
   Settings,
   PieChart,
-  BarChart3
+  BarChart3,
+  Users
 } from 'lucide-react';
+import { api } from './services/api';
 
 const etapas = [
-  { id: 'planear', title: 'Planear', icon: ClipboardList, color: 'text-blue-500', bg: 'bg-blue-50', borderColor: 'border-blue-500' },
-  { id: 'hacer', title: 'Hacer', icon: Activity, color: 'text-orange-500', bg: 'bg-orange-50', borderColor: 'border-orange-500' },
-  { id: 'verificar', title: 'Verificar', icon: TrendingUp, color: 'text-purple-500', bg: 'bg-purple-50', borderColor: 'border-purple-500' },
-  { id: 'actuar', title: 'Actuar', icon: Settings, color: 'text-green-500', bg: 'bg-green-50', borderColor: 'border-green-500' }
+  { id: 'Planear', title: 'Planear', icon: ClipboardList, color: 'text-blue-500', bg: 'bg-blue-50', borderColor: 'border-blue-500' },
+  { id: 'Hacer', title: 'Hacer', icon: Activity, color: 'text-orange-500', bg: 'bg-orange-50', borderColor: 'border-orange-500' },
+  { id: 'Verificar', title: 'Verificar', icon: TrendingUp, color: 'text-purple-500', bg: 'bg-purple-50', borderColor: 'border-purple-500' },
+  { id: 'Actuar', title: 'Actuar', icon: Settings, color: 'text-green-500', bg: 'bg-green-50', borderColor: 'border-green-500' }
 ];
 
 const estadoColors = {
@@ -39,7 +41,7 @@ const estadoColors = {
 const initialFormData = {
   actividad: '',
   estandar_referencia: '',
-  phva_etapa: 'planear',
+  phva_etapa: 'Planear',
   categoria: '',
   fecha_inicio: '',
   fecha_fin: '',
@@ -82,10 +84,11 @@ export default function PlanAnual({ profile }) {
   const fetchActividades = async () => {
     setLoading(true);
     try {
-      const res = await fetch(`http://localhost:8000/api/empresas/${profile.id}/plan-anual`);
+      const res = await api(`/empresas/${profile.id}/plan-anual`);
       if (res.ok) {
         const data = await res.json();
-        setActividades(data);
+        // El backend devuelve un objeto paginado
+        setActividades(data.data || []);
       }
     } catch (err) {
       console.error("Error al cargar actividades:", err);
@@ -96,7 +99,7 @@ export default function PlanAnual({ profile }) {
 
   const fetchResumen = async () => {
     try {
-      const res = await fetch(`http://localhost:8000/api/empresas/${profile.id}/plan-anual/resumen`);
+      const res = await api(`/empresas/${profile.id}/plan-anual/resumen`);
       if (res.ok) {
         const data = await res.json();
         setResumen(data);
@@ -110,8 +113,8 @@ export default function PlanAnual({ profile }) {
     const { name, value } = e.target;
     setFormData(prev => ({ ...prev, [name]: value }));
 
-    if (name === 'fecha_inicio') {
-      const mes = new Date(value).getMonth() + 1;
+    if (name === 'fecha_inicio' && value) {
+      const mes = new Date(value).getUTCMonth() + 1;
       const trimestre = Math.ceil(mes / 3);
       setFormData(prev => ({ ...prev, trimestre }));
     }
@@ -125,8 +128,8 @@ export default function PlanAnual({ profile }) {
     try {
       const method = editingId ? 'PUT' : 'POST';
       const url = editingId
-        ? `http://localhost:8000/api/plan-anual/${editingId}`
-        : 'http://localhost:8000/api/plan-anual';
+        ? `/plan-anual/${editingId}`
+        : '/plan-anual';
 
       const payload = {
         ...formData,
@@ -135,9 +138,8 @@ export default function PlanAnual({ profile }) {
         valor_inicial: formData.valor_inicial ? parseFloat(formData.valor_inicial) : null,
       };
 
-      const res = await fetch(url, {
+      const res = await api(url, {
         method,
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       });
 
@@ -147,9 +149,13 @@ export default function PlanAnual({ profile }) {
         setFormData(initialFormData);
         fetchActividades();
         fetchResumen();
+      } else {
+        const error = await res.json();
+        alert("Error al guardar: " + (error.message || "Verifique los datos"));
       }
     } catch (err) {
       console.error("Error al guardar:", err);
+      alert("Error de conexión");
     } finally {
       setSaving(false);
     }
@@ -159,7 +165,7 @@ export default function PlanAnual({ profile }) {
     setFormData({
       actividad: actividad.actividad || '',
       estandar_referencia: actividad.estandar_referencia || '',
-      phva_etapa: actividad.phva_etapa?.toLowerCase() || 'planear',
+      phva_etapa: actividad.phva_etapa || 'Planear',
       categoria: actividad.categoria || '',
       fecha_inicio: actividad.fecha_inicio || '',
       fecha_fin: actividad.fecha_fin || '',
@@ -184,9 +190,11 @@ export default function PlanAnual({ profile }) {
   const handleDelete = async (id) => {
     if (!confirm('¿Estás seguro de eliminar esta actividad?')) return;
     try {
-      await fetch(`http://localhost:8000/api/plan-anual/${id}`, { method: 'DELETE' });
-      fetchActividades();
-      fetchResumen();
+      const res = await api(`/plan-anual/${id}`, { method: 'DELETE' });
+      if (res.ok) {
+        fetchActividades();
+        fetchResumen();
+      }
     } catch (err) {
       console.error("Error al eliminar:", err);
     }
@@ -194,13 +202,14 @@ export default function PlanAnual({ profile }) {
 
   const handleEstadoChange = async (id, nuevoEstado) => {
     try {
-      await fetch(`http://localhost:8000/api/plan-anual/${id}`, {
+      const res = await api(`/plan-anual/${id}`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ estado: nuevoEstado }),
       });
-      fetchActividades();
-      fetchResumen();
+      if (res.ok) {
+        fetchActividades();
+        fetchResumen();
+      }
     } catch (err) {
       console.error("Error al actualizar estado:", err);
     }
@@ -212,15 +221,16 @@ export default function PlanAnual({ profile }) {
 
     setGenerating(true);
     try {
-      const res = await fetch('http://localhost:8000/api/plan-anual/generar', {
+      const res = await api('/plan-anual/generar', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ empresa_id: profile.id }),
       });
-      const data = await res.json();
-      alert(data.message);
-      fetchActividades();
-      fetchResumen();
+      if (res.ok) {
+        const data = await res.json();
+        alert(data.message);
+        fetchActividades();
+        fetchResumen();
+      }
     } catch (err) {
       console.error("Error al generar:", err);
     } finally {
@@ -242,9 +252,12 @@ export default function PlanAnual({ profile }) {
     formDataUpload.append('archivo', file);
 
     try {
-      const res = await fetch('http://localhost:8000/api/plan-anual/upload', {
+      // Nota: El api utility maneja los headers. Para FormData, el navegador pone el boundary automáticamente.
+      // Dependiendo de cómo esté implementado 'api', podría fallar si fuerza Content-Type application/json.
+      const res = await fetch(`http://localhost:8000/api/plan-anual/upload`, {
         method: 'POST',
         body: formDataUpload,
+        // No pasamos headers para que el navegador maneje el multipart/form-data
       });
       if (res.ok) {
         fetchActividades();
@@ -474,6 +487,9 @@ export default function PlanAnual({ profile }) {
                         {actividad.estandar_referencia && (
                           <span className="text-xs text-gray-400 font-mono">Ref: {actividad.estandar_referencia}</span>
                         )}
+                        {actividad.categoria && (
+                          <p className="text-[10px] text-blue-500 font-bold uppercase">{actividad.categoria}</p>
+                        )}
                       </div>
                     </td>
                     <td className="px-4 py-3">
@@ -618,6 +634,19 @@ export default function PlanAnual({ profile }) {
                   </select>
                 </div>
 
+                {/* Categoria */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Categoría</label>
+                  <input
+                    type="text"
+                    name="categoria"
+                    placeholder="Ej: Planificación, Salud..."
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 outline-none"
+                    value={formData.categoria}
+                    onChange={handleInputChange}
+                  />
+                </div>
+
                 {/* Trimestre */}
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Trimestre *</label>
@@ -723,6 +752,19 @@ export default function PlanAnual({ profile }) {
                     step="0.01"
                     className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 outline-none"
                     value={formData.presupuesto}
+                    onChange={handleInputChange}
+                  />
+                </div>
+
+                {/* Valor Inicial */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Valor Inicial Indicador</label>
+                  <input
+                    type="number"
+                    name="valor_inicial"
+                    step="0.01"
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 outline-none"
+                    value={formData.valor_inicial}
                     onChange={handleInputChange}
                   />
                 </div>

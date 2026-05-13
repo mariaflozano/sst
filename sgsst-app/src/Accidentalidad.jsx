@@ -6,8 +6,8 @@ import {
   Globe, AlertCircle, FileText, ClipboardList, Info, ShieldCheck, Download,
   ShieldAlert, Save, Users
 } from 'lucide-react';
+import { api } from './services/api';
 
-const API_BASE = 'http://localhost:8000/api';
 const STORAGE_KEY_ACCIDENTES = 'sgsst_accidentes_offline';
 const STORAGE_KEY_INVESTIGACIONES = 'sgsst_investigaciones_offline';
 
@@ -46,7 +46,8 @@ const ProfessionalDisclaimer = () => {
 };
 
 
-export default function Accidentalidad({ profile }) {
+export default function Accidentalidad({ companyProfile }) {
+  const profile = companyProfile;
   const [view, setView] = useState('list'); // list, report, investigate, detail
   const [accidentes, setAccidentes] = useState([]);
   const [investigaciones, setInvestigaciones] = useState([]);
@@ -61,6 +62,7 @@ export default function Accidentalidad({ profile }) {
   // Estado para el formulario de reporte
   const [formData, setFormData] = useState(getInitialFormData());
   const [saving, setSaving] = useState(false);
+  const [editingAccidenteId, setEditingAccidenteId] = useState(null);
 
   // Estado para investigación
   const [investigacionActual, setInvestigacionActual] = useState(null);
@@ -111,6 +113,39 @@ export default function Accidentalidad({ profile }) {
     };
   }, []);
 
+  const editAccidente = (acc) => {
+    setEditingAccidenteId(acc.id);
+    setFormData({
+      ...getInitialFormData(),
+      ...acc,
+      // Asegurar formatos correctos para inputs de fecha
+      fecha_evento: acc.fecha_evento ? acc.fecha_evento.split('T')[0] : '',
+      fecha_reporte: acc.fecha_reporte ? acc.fecha_reporte.split('T')[0] : '',
+      fecha_reporte_arl: acc.fecha_reporte_arl ? acc.fecha_reporte_arl.split('T')[0] : '',
+      testigos: acc.testigos || [],
+    });
+    setView('report');
+  };
+
+  const deleteAccidente = async (id) => {
+    if (!window.confirm('¿Está seguro de eliminar este registro?')) return;
+
+    try {
+      const res = await api(`/accidentes/${id}`, {
+        method: 'DELETE',
+      });
+
+      if (res.ok) {
+        setAccidentes(prev => prev.filter(a => a.id !== id));
+        setSuccessMessage('Accidente eliminado correctamente.');
+      } else {
+        setErrorMessage('No se pudo eliminar el registro.');
+      }
+    } catch (e) {
+      setErrorMessage('Error de conexión al intentar eliminar.');
+    }
+  };
+
   // Cargar datos
   useEffect(() => {
     if (profile?.id) {
@@ -158,7 +193,7 @@ export default function Accidentalidad({ profile }) {
   const fetchSucursales = async () => {
     if (!profile?.id) return;
     try {
-      const res = await fetch(`${API_BASE}/empresas/${profile.id}/sucursales`);
+      const res = await api(`/empresas/${profile.id}/sucursales`);
       if (res.ok) setSucursales(await res.json());
     } catch (e) { console.error(e); }
   };
@@ -167,7 +202,7 @@ export default function Accidentalidad({ profile }) {
     if (!profile?.id) return;
     setLoading(true);
     try {
-      const res = await fetch(`${API_BASE}/empresas/${profile.id}/accidentes`);
+      const res = await api(`/empresas/${profile.id}/accidentes`);
       if (res.ok) {
         const data = await res.json();
         setAccidentes(Array.isArray(data) ? data : []);
@@ -182,7 +217,7 @@ export default function Accidentalidad({ profile }) {
   const fetchInvestigaciones = async () => {
     if (!profile?.id) return;
     try {
-      const res = await fetch(`${API_BASE}/empresas/${profile.id}/investigaciones`);
+      const res = await api(`/empresas/${profile.id}/investigaciones`);
       if (res.ok) {
         const data = await res.json();
         setInvestigaciones(Array.isArray(data) ? data : []);
@@ -193,7 +228,7 @@ export default function Accidentalidad({ profile }) {
   const fetchAlertas = async () => {
     if (!profile?.id) return;
     try {
-      const res = await fetch(`${API_BASE}/empresas/${profile.id}/investigaciones/alertas`);
+      const res = await api(`/empresas/${profile.id}/investigaciones/alertas`);
       if (res.ok) setAlertas(await res.json());
     } catch (e) { console.error(e); }
   };
@@ -253,21 +288,29 @@ export default function Accidentalidad({ profile }) {
 
     try {
       if (isOnline) {
-        const res = await fetch(`${API_BASE}/empresas/accidentes`, {
-          method: 'POST',
-          headers: { 
-            'Content-Type': 'application/json',
-            'Accept': 'application/json' 
-          },
+        const url = editingAccidenteId 
+          ? `/accidentes/${editingAccidenteId}`
+          : `/empresas/accidentes`;
+        
+        const method = editingAccidenteId ? 'PUT' : 'POST';
+
+        const res = await api(url, {
+          method,
           body: JSON.stringify(accidenteData)
         });
 
         if (res.ok) {
           const saved = await res.json();
-          setAccidentes(prev => [saved, ...prev]);
-          setSuccessMessage('Accidente reportado correctamente.');
+          if (editingAccidenteId) {
+            setAccidentes(prev => prev.map(a => a.id === editingAccidenteId ? saved : a));
+            setSuccessMessage('Registro actualizado correctamente.');
+          } else {
+            setAccidentes(prev => [saved, ...prev]);
+            setSuccessMessage('Accidente reportado correctamente.');
+          }
           setView('list');
           setFormData(getInitialFormData());
+          setEditingAccidenteId(null);
         } else {
           try {
             const err = await res.json();
@@ -282,14 +325,19 @@ export default function Accidentalidad({ profile }) {
         setSuccessMessage('Guardado localmente. Se sincronizará cuando haya conexión.');
         setView('list');
         setFormData(getInitialFormData());
+        setEditingAccidenteId(null);
       }
     } catch (error) {
       try {
-        const local = saveLocally(accidenteData, 'accidente');
-        setAccidentes(prev => [local, ...prev]);
-        setSuccessMessage('Guardado localmente. Error: ' + error.message);
-        setView('list');
-        setFormData(getInitialFormData());
+        if (!editingAccidenteId) {
+          const local = saveLocally(accidenteData, 'accidente');
+          setAccidentes(prev => [local, ...prev]);
+          setSuccessMessage('Guardado localmente. Error: ' + error.message);
+          setView('list');
+          setFormData(getInitialFormData());
+        } else {
+          setErrorMessage('Error al actualizar (offline no soportado para edición): ' + error.message);
+        }
       } catch (localError) {
         setErrorMessage('Error al guardar: ' + error.message);
       }
@@ -304,9 +352,8 @@ export default function Accidentalidad({ profile }) {
       return;
     }
     try {
-      const res = await fetch(`${API_BASE}/investigaciones`, {
+      const res = await api(`/investigaciones`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           accidente_id: accidente.id,
           empresa_id: profile.id
@@ -390,9 +437,8 @@ export default function Accidentalidad({ profile }) {
     if (!investigacionActual) return;
 
     try {
-      const res = await fetch(`${API_BASE}/investigaciones/${investigacionActual.id}`, {
+      const res = await api(`/investigaciones/${investigacionActual.id}`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           ...invFormData,
           estado: 'En Proceso',
@@ -414,9 +460,8 @@ export default function Accidentalidad({ profile }) {
     if (!investigacionActual) return;
 
     try {
-      const res = await fetch(`${API_BASE}/investigaciones/${investigacionActual.id}/cerrar`, {
+      const res = await api(`/investigaciones/${investigacionActual.id}/cerrar`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ eficacia_verificada: false })
       });
 
@@ -763,41 +808,7 @@ export default function Accidentalidad({ profile }) {
     return (
       <div className="flex-1 overflow-auto p-6 bg-gray-50 h-full">
         <div className="max-w-7xl mx-auto">
-
-          {/* ── DESCARGO DE RESPONSABILIDAD ───────────────────────────────── */}
-          {(() => {
-            const [showDisclaimer, setShowDisclaimer] = React.useState(() => {
-              const hiddenUntil = localStorage.getItem('sgsst_disclaimer_hidden');
-              return !hiddenUntil || Date.now() > parseInt(hiddenUntil);
-            });
-
-            if (!showDisclaimer) return null;
-
-            const dismiss = () => {
-              const sevenDays = Date.now() + (7 * 24 * 60 * 60 * 1000);
-              localStorage.setItem('sgsst_disclaimer_hidden', sevenDays.toString());
-              setShowDisclaimer(false);
-            };
-
-            return (
-              <div className="bg-gray-800 border border-gray-700 rounded-xl px-4 py-3 mb-6 flex items-center justify-between group">
-                <div className="flex items-center">
-                  <Shield className="w-5 h-5 text-yellow-400 mr-3 flex-shrink-0" />
-                  <p className="text-xs text-gray-300 pr-4">
-                    <span className="text-yellow-400 font-bold">Aviso profesional: </span>
-                    Esta plataforma es un apoyo tecnológico para organizar su proceso. <strong className="text-white">No sustituye la gestión ni responsabilidades de un técnico, tecnólogo o profesional en SST con licencia vigente.</strong> El cumplimiento legal requiere la supervisión de personal calificado.
-                  </p>
-                </div>
-                <button 
-                  onClick={dismiss}
-                  className="text-gray-500 hover:text-white transition-colors p-1 rounded-lg hover:bg-gray-700"
-                  title="Ocultar por 7 días"
-                >
-                  <X size={16} />
-                </button>
-              </div>
-            );
-          })()}
+          <ProfessionalDisclaimer />
 
           <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
             <div className="bg-purple-600 px-6 py-4 flex justify-between items-center">
@@ -1141,7 +1152,11 @@ export default function Accidentalidad({ profile }) {
             </div>
           )}
           <button
-            onClick={() => setView('report')}
+            onClick={() => {
+              setFormData(getInitialFormData());
+              setEditingAccidenteId(null);
+              setView('report');
+            }}
             className="bg-red-500 hover:bg-red-600 text-white px-5 py-2.5 rounded-xl text-sm font-bold flex items-center shadow-md transition-all"
           >
             <PlusCircle className="w-5 h-5 mr-2" />
@@ -1252,6 +1267,20 @@ export default function Accidentalidad({ profile }) {
                     </td>
                     <td className="px-6 py-4 text-right">
                       <div className="flex justify-end gap-2">
+                        <button
+                          onClick={() => editAccidente(acc)}
+                          className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                          title="Editar Reporte"
+                        >
+                          <FileText className="w-4 h-4" />
+                        </button>
+                        <button
+                          onClick={() => deleteAccidente(acc.id)}
+                          className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                          title="Eliminar Reporte"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
                         <button
                           onClick={() => {
                             if (acc.investigacion) {

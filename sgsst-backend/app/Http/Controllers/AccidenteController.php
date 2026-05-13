@@ -22,9 +22,15 @@ class AccidenteController extends Controller
 
     public function store(Request $request)
     {
+        // Asegurar que el empresa_id provenga del contexto de tenancy (la "sesión")
+        $tenantId = $request->attributes->get('tenant_id');
+        if ($tenantId) {
+            $request->merge(['empresa_id' => $tenantId]);
+        }
+
         $validated = $request->validate([
             'empresa_id' => 'required|exists:empresas,id',
-            'sucursal_id' => 'nullable|exists:sucursales,id',
+            'sucursal_id' => 'nullable', // Removido exists para permitir id de empresa
 
             // Datos del trabajador (obligatorios)
             'nombre_trabajador' => 'required|string',
@@ -61,7 +67,7 @@ class AccidenteController extends Controller
 
         $accidente = Accidente::create([
             'empresa_id' => $validated['empresa_id'],
-            'sucursal_id' => $validated['sucursal_id'] ?? null,
+            'sucursal_id' => $validated['sucursal_id'] ?: $validated['empresa_id'], // Fallback al ID de empresa
             'nombre_trabajador' => $validated['nombre_trabajador'],
             'documento_identidad' => $validated['documento_identidad'],
             'cargo' => $validated['cargo'],
@@ -88,6 +94,65 @@ class AccidenteController extends Controller
         ]);
 
         return response()->json($accidente->load('sucursal'), 201);
+    }
+
+    public function update(Request $request, $id)
+    {
+        $accidente = Accidente::findOrFail($id);
+        
+        // Verificación de seguridad: El accidente debe pertenecer a la empresa actual
+        $tenantId = $request->attributes->get('tenant_id');
+        if ($tenantId && $accidente->empresa_id != $tenantId) {
+            return response()->json(['error' => 'No autorizado para editar este registro'], 403);
+        }
+
+        $validated = $request->validate([
+            'sucursal_id' => 'nullable', // Removido exists
+            'nombre_trabajador' => 'required|string',
+            'documento_identidad' => 'required|string',
+            'cargo' => 'required|string',
+            'area' => 'nullable|string',
+            'tipo_contrato' => 'nullable|string',
+            'antiguedad' => 'nullable|string',
+            'fecha_evento' => 'required|date',
+            'hora_evento' => 'nullable|string',
+            'fecha_reporte' => 'nullable|date',
+            'lugar_exacto' => 'nullable|string',
+            'tipo_accidente' => 'nullable|string',
+            'tipo_evento' => 'required|string',
+            'descripcion' => 'required|string',
+            'tipo_lesion' => 'nullable|string',
+            'parte_cuerpo' => 'nullable|string',
+            'clasificacion_accidente' => 'nullable|string',
+            'dias_incapacidad' => 'nullable|integer',
+            'testigos' => 'nullable|array',
+            'jefe_inmediato' => 'nullable|string',
+            'reportado_arl' => 'nullable|boolean',
+            'fecha_reporte_arl' => 'nullable|date',
+            'numero_radicado_arl' => 'nullable|string',
+            'estado' => 'nullable|string|in:Reportado,Investigacion,Cerrado'
+        ]);
+
+        $validated['sucursal_id'] = $validated['sucursal_id'] ?: $tenantId;
+
+        $accidente->update($validated);
+
+        return response()->json($accidente->load('sucursal'));
+    }
+
+    public function destroy(Request $request, $id)
+    {
+        $accidente = Accidente::findOrFail($id);
+        
+        // Verificación de seguridad
+        $tenantId = $request->attributes->get('tenant_id');
+        if ($tenantId && $accidente->empresa_id != $tenantId) {
+            return response()->json(['error' => 'No autorizado para eliminar este registro'], 403);
+        }
+
+        $accidente->delete();
+
+        return response()->json(['message' => 'Accidente eliminado correctamente']);
     }
 
     public function updateStatus(Request $request, $id)

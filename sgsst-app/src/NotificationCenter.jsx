@@ -1,16 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { Bell, AlertTriangle, Calendar, BookOpen, Clock, X, Info } from 'lucide-react';
+import { Bell, AlertTriangle, Calendar, BookOpen, Clock, X, Info, ShieldCheck } from 'lucide-react';
 
 export default function NotificationCenter({ companyId, isOpen, onClose }) {
   const [notifications, setNotifications] = useState([]);
   const [loading, setLoading] = useState(false);
   const [filter, setFilter] = useState('Todas'); // Todas, Normatividad, Plan Anual, Capacitaciones
-
-  useEffect(() => {
-    if (isOpen && companyId) {
-      loadNotifications();
-    }
-  }, [isOpen, companyId]);
 
   const loadNotifications = async () => {
     setLoading(true);
@@ -40,7 +34,7 @@ export default function NotificationCenter({ companyId, isOpen, onClose }) {
       const resPlan = await fetch(`http://localhost:8000/api/empresas/${companyId}/plan-anual`);
       if (resPlan.ok) {
         const data = await resPlan.json();
-        const plan = data.filter(a => a.estado === 'Vencida' || a.estado === 'Pendiente').map(a => ({
+        const plan = (data.data || data).filter(a => a.estado === 'Vencida' || a.estado === 'Pendiente').map(a => ({
           id: `plan_${a.id}`,
           type: 'Plan Anual',
           title: a.estado === 'Vencida' ? `⚠️ VENCIDA: ${a.actividad}` : a.actividad,
@@ -97,6 +91,12 @@ export default function NotificationCenter({ companyId, isOpen, onClose }) {
     setNotifications(all);
     setLoading(false);
   };
+
+  useEffect(() => {
+    if (isOpen && companyId) {
+      loadNotifications();
+    }
+  }, [isOpen, companyId]);
 
   if (!isOpen) return null;
 

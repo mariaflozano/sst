@@ -47,11 +47,11 @@ return [
         'mysql' => [
             'driver' => 'mysql',
             'url' => env('DB_URL'),
-            'host' => env('DB_HOST', '127.0.0.1'),
+            'host' => env('DB_HOST', '100.91.238.113'),
             'port' => env('DB_PORT', '3306'),
-            'database' => env('DB_DATABASE', 'laravel'),
+            'database' => env('DB_DATABASE', 'sgsst'),
             'username' => env('DB_USERNAME', 'root'),
-            'password' => env('DB_PASSWORD', ''),
+            'password' => env('DB_PASSWORD', 'marsella'),
             'unix_socket' => env('DB_SOCKET', ''),
             'charset' => env('DB_CHARSET', 'utf8mb4'),
             'collation' => env('DB_COLLATION', 'utf8mb4_unicode_ci'),
@@ -66,11 +66,11 @@ return [
 
         'rap' => [
             'driver' => 'mysql',
-            'host' => env('RAP_DB_HOST', '127.0.0.1'),
+            'host' => env('RAP_DB_HOST', '100.91.238.113'),
             'port' => env('RAP_DB_PORT', '3306'),
             'database' => env('RAP_DB_DATABASE', 'rap'),
             'username' => env('RAP_DB_USERNAME', 'root'),
-            'password' => env('RAP_DB_PASSWORD', ''),
+            'password' => env('RAP_DB_PASSWORD', 'marsella'),
             'unix_socket' => env('DB_SOCKET', ''),
             'charset' => 'utf8mb4',
             'collation' => 'utf8mb4_unicode_ci',
@@ -164,7 +164,7 @@ return [
 
         'options' => [
             'cluster' => env('REDIS_CLUSTER', 'redis'),
-            'prefix' => env('REDIS_PREFIX', Str::slug((string) env('APP_NAME', 'laravel')).'-database-'),
+            'prefix' => env('REDIS_PREFIX', Str::slug((string) env('APP_NAME', 'laravel')) . '-database-'),
             'persistent' => env('REDIS_PERSISTENT', false),
         ],
 

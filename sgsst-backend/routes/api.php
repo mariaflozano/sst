@@ -7,6 +7,7 @@ use App\Http\Controllers\AccidenteController;
 use App\Http\Controllers\InvestigacionController;
 use App\Http\Controllers\PlanAnualController;
 use App\Http\Controllers\TrabajadorController;
+use App\Http\Controllers\AusentismoController;
 use App\Http\Controllers\IndicadorController;
 use App\Http\Controllers\AuditoriaController;
 use Illuminate\Http\Request;
@@ -23,13 +24,20 @@ Route::get('/empresas/{id}', [EmpresaController::class, 'show']);
 Route::put('/empresas/{id}', [EmpresaController::class, 'update']);
 Route::post('/empresas/{id}/logo', [EmpresaController::class, 'uploadLogo']);
 Route::post('/empresas/{id}/firma', [EmpresaController::class, 'uploadFirma']);
+// Buscar empresa por tenant_id (útil para validaciones)
+Route::get('/empresas/buscar-por-tenant/{tenant_id}', [EmpresaController::class, 'buscarPorTenant']);
 
-// Trabajadores y Ausentismo
+// Trabajadores
 Route::get('/empresas/{id}/trabajadores', [TrabajadorController::class, 'index']);
 Route::post('/empresas/trabajadores', [TrabajadorController::class, 'store']);
 Route::put('/empresas/trabajadores/{id}', [TrabajadorController::class, 'update']);
-Route::post('/empresas/trabajadores/{id}/ausentismos', [TrabajadorController::class, 'storeAusentismo']);
-Route::delete('/empresas/ausentismos/{id}', [TrabajadorController::class, 'destroyAusentismo']);
+Route::delete('/empresas/trabajadores/{id}', [TrabajadorController::class, 'destroy']);
+
+// Ausentismo (Incapacidades)
+Route::get('/empresas/{id}/ausentismos', [AusentismoController::class, 'index']);
+Route::post('/ausentismos', [AusentismoController::class, 'store']);
+Route::put('/ausentismos/{id}', [AusentismoController::class, 'update']);
+Route::delete('/ausentismos/{id}', [AusentismoController::class, 'destroy']);
 
 Route::get('/empresas/{id}/progreso', [EstandarProgresoController::class, 'index']);
 Route::get('/empresas/{id}/estadisticas', [EstandarProgresoController::class, 'getDashboardStats']);
@@ -58,6 +66,8 @@ Route::get('/empresas/matriz-legal/evidence/{itemId}', [AlertaController::class,
 
 Route::get('/empresas/{id}/accidentes', [AccidenteController::class, 'index']);
 Route::post('/empresas/accidentes', [AccidenteController::class, 'store']);
+Route::put('/accidentes/{id}', [AccidenteController::class, 'update']);
+Route::delete('/accidentes/{id}', [AccidenteController::class, 'destroy']);
 Route::patch('/empresas/accidentes/{id}/estado', [AccidenteController::class, 'updateStatus']);
 Route::get('/empresas/{id}/sucursales', [AccidenteController::class, 'sucursales']);
 Route::post('/empresas/accidentes/sync', [AccidenteController::class, 'sync']);
@@ -84,6 +94,7 @@ Route::get('/empresas/{id}/plan-anual/resumen', [PlanAnualController::class, 're
 
 // Capacitaciones
 use App\Http\Controllers\CapacitacionController;
+
 Route::get('/empresas/{id}/capacitaciones', [CapacitacionController::class, 'index']);
 Route::post('/capacitaciones', [CapacitacionController::class, 'store']);
 Route::post('/capacitaciones/sync', [CapacitacionController::class, 'sync']);

@@ -94,30 +94,10 @@ export default function App() {
               return;
             }
           }
-        } catch { /* sin conexión, continuar */ }
-
-        // No existe empresa — crear con valores por defecto para no bloquear el acceso
-        try {
-          const createRes = await api('/empresas', {
-            method: 'POST',
-            body: JSON.stringify({
-              tenant_id: auth.tenant_id,
-              nombre: auth.user?.name || 'Mi Empresa',
-              trabajadores: 1,
-              nivel_riesgo: '1',
-              codigo_ciiu: '0000',
-              cantidad_estandares: 7,
-              clasificacion: 'Microempresa (Riesgo Bajo/Medio)',
-            }),
-          });
-          if (createRes.ok) {
-            const empresa = await createRes.json();
-            localStorage.setItem('sgsst_company_profile', JSON.stringify(empresa));
-            setCompanyProfile(empresa);
-            setView('dashboard');
-            return;
-          }
-        } catch { /* no hay conexión con el backend */ }
+        } catch (error) {
+          alert("Error al cargar el perfil de la empresa. Por favor contacte a soporte.");
+          console.error(error);
+        }
       }
 
       // Sin tenant_id o sin conexión → pedir login de nuevo
@@ -135,30 +115,6 @@ export default function App() {
       setView('dashboard');
       return;
     }
-
-    // No existe empresa aún — crearla automáticamente
-    setView('loading');
-    try {
-      const createRes = await api('/empresas', {
-        method: 'POST',
-        body: JSON.stringify({
-          tenant_id: auth.tenant_id,
-          nombre: auth.user?.name || 'Mi Empresa',
-          trabajadores: 1,
-          nivel_riesgo: '1',
-          codigo_ciiu: '0000',
-          cantidad_estandares: 7,
-          clasificacion: 'Microempresa (Riesgo Bajo/Medio)',
-        }),
-      });
-      if (createRes.ok) {
-        const newEmpresa = await createRes.json();
-        localStorage.setItem('sgsst_company_profile', JSON.stringify(newEmpresa));
-        setCompanyProfile(newEmpresa);
-        setView('dashboard');
-        return;
-      }
-    } catch { /* sin conexión con el backend */ }
 
     setView('dashboard');
   };

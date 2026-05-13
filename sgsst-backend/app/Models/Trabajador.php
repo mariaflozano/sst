@@ -18,6 +18,7 @@ class Trabajador extends Model
         'tipo_sangre',
         'contacto_emergencia_nombre',
         'contacto_emergencia_telefono',
+        'auditor',
     ];
 
     public function empresa()

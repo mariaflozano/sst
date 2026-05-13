@@ -6,8 +6,8 @@ import {
   Globe, AlertCircle, FileText, ClipboardList, Info, ShieldCheck, Download,
   ShieldAlert, Save, Users
 } from 'lucide-react';
+import { api } from './services/api';
 
-const API_BASE = 'http://localhost:8000/api';
 const STORAGE_KEY_ACCIDENTES = 'sgsst_accidentes_offline';
 const STORAGE_KEY_INVESTIGACIONES = 'sgsst_investigaciones_offline';
 
@@ -34,7 +34,7 @@ const ProfessionalDisclaimer = () => {
           Esta plataforma es un apoyo para organizar su proceso mejor. <strong className="text-white">No es un reemplazo de un técnico, tecnólogo o profesional de SST con licencia.</strong> El cumplimiento legal requiere siempre la supervisión de personal calificado.
         </p>
       </div>
-      <button 
+      <button
         onClick={dismiss}
         className="text-gray-500 hover:text-white transition-colors p-1 rounded-lg hover:bg-gray-700"
         title="Ocultar por 7 días"
@@ -46,7 +46,8 @@ const ProfessionalDisclaimer = () => {
 };
 
 
-export default function Accidentalidad({ profile }) {
+export default function Accidentalidad({ companyProfile }) {
+  const profile = companyProfile;
   const [view, setView] = useState('list'); // list, report, investigate, detail
   const [accidentes, setAccidentes] = useState([]);
   const [investigaciones, setInvestigaciones] = useState([]);
@@ -61,6 +62,7 @@ export default function Accidentalidad({ profile }) {
   // Estado para el formulario de reporte
   const [formData, setFormData] = useState(getInitialFormData());
   const [saving, setSaving] = useState(false);
+  const [editingAccidenteId, setEditingAccidenteId] = useState(null);
 
   // Estado para investigación
   const [investigacionActual, setInvestigacionActual] = useState(null);
@@ -111,6 +113,39 @@ export default function Accidentalidad({ profile }) {
     };
   }, []);
 
+  const editAccidente = (acc) => {
+    setEditingAccidenteId(acc.id);
+    setFormData({
+      ...getInitialFormData(),
+      ...acc,
+      // Asegurar formatos correctos para inputs de fecha
+      fecha_evento: acc.fecha_evento ? acc.fecha_evento.split('T')[0] : '',
+      fecha_reporte: acc.fecha_reporte ? acc.fecha_reporte.split('T')[0] : '',
+      fecha_reporte_arl: acc.fecha_reporte_arl ? acc.fecha_reporte_arl.split('T')[0] : '',
+      testigos: acc.testigos || [],
+    });
+    setView('report');
+  };
+
+  const deleteAccidente = async (id) => {
+    if (!window.confirm('¿Está seguro de eliminar este registro?')) return;
+
+    try {
+      const res = await api(`/accidentes/${id}`, {
+        method: 'DELETE',
+      });
+
+      if (res.ok) {
+        setAccidentes(prev => prev.filter(a => a.id !== id));
+        setSuccessMessage('Accidente eliminado correctamente.');
+      } else {
+        setErrorMessage('No se pudo eliminar el registro.');
+      }
+    } catch (e) {
+      setErrorMessage('Error de conexión al intentar eliminar.');
+    }
+  };
+
   // Cargar datos
   useEffect(() => {
     if (profile?.id) {
@@ -158,7 +193,7 @@ export default function Accidentalidad({ profile }) {
   const fetchSucursales = async () => {
     if (!profile?.id) return;
     try {
-      const res = await fetch(`${API_BASE}/empresas/${profile.id}/sucursales`);
+      const res = await api(`/empresas/${profile.id}/sucursales`);
       if (res.ok) setSucursales(await res.json());
     } catch (e) { console.error(e); }
   };
@@ -167,7 +202,7 @@ export default function Accidentalidad({ profile }) {
     if (!profile?.id) return;
     setLoading(true);
     try {
-      const res = await fetch(`${API_BASE}/empresas/${profile.id}/accidentes`);
+      const res = await api(`/empresas/${profile.id}/accidentes`);
       if (res.ok) {
         const data = await res.json();
         setAccidentes(Array.isArray(data) ? data : []);
@@ -182,7 +217,7 @@ export default function Accidentalidad({ profile }) {
   const fetchInvestigaciones = async () => {
     if (!profile?.id) return;
     try {
-      const res = await fetch(`${API_BASE}/empresas/${profile.id}/investigaciones`);
+      const res = await api(`/empresas/${profile.id}/investigaciones`);
       if (res.ok) {
         const data = await res.json();
         setInvestigaciones(Array.isArray(data) ? data : []);
@@ -193,7 +228,7 @@ export default function Accidentalidad({ profile }) {
   const fetchAlertas = async () => {
     if (!profile?.id) return;
     try {
-      const res = await fetch(`${API_BASE}/empresas/${profile.id}/investigaciones/alertas`);
+      const res = await api(`/empresas/${profile.id}/investigaciones/alertas`);
       if (res.ok) setAlertas(await res.json());
     } catch (e) { console.error(e); }
   };
@@ -253,26 +288,37 @@ export default function Accidentalidad({ profile }) {
 
     try {
       if (isOnline) {
-        const res = await fetch(`${API_BASE}/empresas/accidentes`, {
-          method: 'POST',
-          headers: { 
-            'Content-Type': 'application/json',
-            'Accept': 'application/json' 
-          },
+        // Si el ID es temporal (empieza por accidente_), se debe tratar como un nuevo registro en el servidor
+        const isTemporaryId = typeof editingAccidenteId === 'string' && editingAccidenteId.startsWith('accidente_');
+
+        const url = (editingAccidenteId && !isTemporaryId)
+          ? `/accidentes/${editingAccidenteId}`
+          : `/empresas/accidentes`;
+
+        const method = (editingAccidenteId && !isTemporaryId) ? 'PUT' : 'POST';
+
+        const res = await api(url, {
+          method,
           body: JSON.stringify(accidenteData)
         });
 
         if (res.ok) {
           const saved = await res.json();
-          setAccidentes(prev => [saved, ...prev]);
-          setSuccessMessage('Accidente reportado correctamente.');
+          if (editingAccidenteId) {
+            setAccidentes(prev => prev.map(a => a.id === editingAccidenteId ? saved : a));
+            setSuccessMessage('Registro actualizado correctamente.');
+          } else {
+            setAccidentes(prev => [saved, ...prev]);
+            setSuccessMessage('Accidente reportado correctamente.');
+          }
           setView('list');
           setFormData(getInitialFormData());
+          setEditingAccidenteId(null);
         } else {
           try {
             const err = await res.json();
             throw new Error(err.message || 'La validación del servidor falló');
-          } catch(e) {
+          } catch (e) {
             throw new Error("El servidor respondió con un formato incorrecto y el registro falló.");
           }
         }
@@ -282,14 +328,19 @@ export default function Accidentalidad({ profile }) {
         setSuccessMessage('Guardado localmente. Se sincronizará cuando haya conexión.');
         setView('list');
         setFormData(getInitialFormData());
+        setEditingAccidenteId(null);
       }
     } catch (error) {
       try {
-        const local = saveLocally(accidenteData, 'accidente');
-        setAccidentes(prev => [local, ...prev]);
-        setSuccessMessage('Guardado localmente. Error: ' + error.message);
-        setView('list');
-        setFormData(getInitialFormData());
+        if (!editingAccidenteId) {
+          const local = saveLocally(accidenteData, 'accidente');
+          setAccidentes(prev => [local, ...prev]);
+          setSuccessMessage('Guardado localmente. Error: ' + error.message);
+          setView('list');
+          setFormData(getInitialFormData());
+        } else {
+          setErrorMessage('Error al actualizar (offline no soportado para edición): ' + error.message);
+        }
       } catch (localError) {
         setErrorMessage('Error al guardar: ' + error.message);
       }
@@ -304,9 +355,8 @@ export default function Accidentalidad({ profile }) {
       return;
     }
     try {
-      const res = await fetch(`${API_BASE}/investigaciones`, {
+      const res = await api(`/investigaciones`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           accidente_id: accidente.id,
           empresa_id: profile.id
@@ -390,9 +440,8 @@ export default function Accidentalidad({ profile }) {
     if (!investigacionActual) return;
 
     try {
-      const res = await fetch(`${API_BASE}/investigaciones/${investigacionActual.id}`, {
+      const res = await api(`/investigaciones/${investigacionActual.id}`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           ...invFormData,
           estado: 'En Proceso',
@@ -414,9 +463,8 @@ export default function Accidentalidad({ profile }) {
     if (!investigacionActual) return;
 
     try {
-      const res = await fetch(`${API_BASE}/investigaciones/${investigacionActual.id}/cerrar`, {
+      const res = await api(`/investigaciones/${investigacionActual.id}/cerrar`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ eficacia_verificada: false })
       });
 
@@ -460,11 +508,11 @@ export default function Accidentalidad({ profile }) {
   const investigacionesPendientes = investigaciones.filter(i => i.estado !== 'Cerrado').length;
 
   // Vista de formulario de reporte
-    if (view === 'report') {
+  if (view === 'report') {
     return (
       <div className="flex-1 overflow-auto p-6 bg-gray-50 h-full">
         <div className="max-w-4xl mx-auto">
-          
+
           {/* ── DESCARGO DE RESPONSABILIDAD ───────────────────────────────── */}
           <ProfessionalDisclaimer />
 
@@ -763,41 +811,7 @@ export default function Accidentalidad({ profile }) {
     return (
       <div className="flex-1 overflow-auto p-6 bg-gray-50 h-full">
         <div className="max-w-7xl mx-auto">
-
-          {/* ── DESCARGO DE RESPONSABILIDAD ───────────────────────────────── */}
-          {(() => {
-            const [showDisclaimer, setShowDisclaimer] = React.useState(() => {
-              const hiddenUntil = localStorage.getItem('sgsst_disclaimer_hidden');
-              return !hiddenUntil || Date.now() > parseInt(hiddenUntil);
-            });
-
-            if (!showDisclaimer) return null;
-
-            const dismiss = () => {
-              const sevenDays = Date.now() + (7 * 24 * 60 * 60 * 1000);
-              localStorage.setItem('sgsst_disclaimer_hidden', sevenDays.toString());
-              setShowDisclaimer(false);
-            };
-
-            return (
-              <div className="bg-gray-800 border border-gray-700 rounded-xl px-4 py-3 mb-6 flex items-center justify-between group">
-                <div className="flex items-center">
-                  <Shield className="w-5 h-5 text-yellow-400 mr-3 flex-shrink-0" />
-                  <p className="text-xs text-gray-300 pr-4">
-                    <span className="text-yellow-400 font-bold">Aviso profesional: </span>
-                    Esta plataforma es un apoyo tecnológico para organizar su proceso. <strong className="text-white">No sustituye la gestión ni responsabilidades de un técnico, tecnólogo o profesional en SST con licencia vigente.</strong> El cumplimiento legal requiere la supervisión de personal calificado.
-                  </p>
-                </div>
-                <button 
-                  onClick={dismiss}
-                  className="text-gray-500 hover:text-white transition-colors p-1 rounded-lg hover:bg-gray-700"
-                  title="Ocultar por 7 días"
-                >
-                  <X size={16} />
-                </button>
-              </div>
-            );
-          })()}
+          <ProfessionalDisclaimer />
 
           <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
             <div className="bg-purple-600 px-6 py-4 flex justify-between items-center">
@@ -1081,214 +1095,232 @@ export default function Accidentalidad({ profile }) {
         <ProfessionalDisclaimer />
 
         {/* Barra de estado */}
-      {!isOnline && (
-        <div className="bg-yellow-50 border border-yellow-200 rounded-xl p-4 mb-6 flex items-center justify-between">
-          <div className="flex items-center">
-            <WifiOff className="w-5 h-5 text-yellow-600 mr-3" />
-            <span className="text-yellow-800 font-medium">Modo offline</span>
-          </div>
-          <span className="text-yellow-700 text-sm">{pendingSync} pendiente(s) de sincronizar</span>
-        </div>
-      )}
-
-      {/* Alertas de investigación */}
-      {alertas.length > 0 && (
-        <div className="bg-red-50 border border-red-200 rounded-xl p-4 mb-6">
-          <h4 className="font-bold text-red-800 flex items-center mb-2">
-            <AlertTriangle className="w-5 h-5 mr-2" />
-            Alertas de Investigación
-          </h4>
-          {alertas.map((alerta, index) => (
-            <div key={index} className="text-sm text-red-700 mb-1">
-              <strong>{alerta.tipo}:</strong> {alerta.mensaje} — {alerta.trabajador}
+        {!isOnline && (
+          <div className="bg-yellow-50 border border-yellow-200 rounded-xl p-4 mb-6 flex items-center justify-between">
+            <div className="flex items-center">
+              <WifiOff className="w-5 h-5 text-yellow-600 mr-3" />
+              <span className="text-yellow-800 font-medium">Modo offline</span>
             </div>
-          ))}
-        </div>
-      )}
-
-      {errorMessage && (
-        <div className="bg-red-50 border border-red-200 rounded-xl p-4 mb-6 flex items-center">
-          <AlertTriangle className="w-5 h-5 text-red-600 mr-3" />
-          <span className="text-red-800">{errorMessage}</span>
-          <button onClick={() => setErrorMessage(null)} className="ml-auto text-gray-400 hover:text-gray-600">
-            <X className="w-4 h-4" />
-          </button>
-        </div>
-      )}
-
-      {successMessage && (
-        <div className="bg-green-50 border border-green-200 rounded-xl p-4 mb-6 flex items-center">
-          <CheckCircle className="w-5 h-5 text-green-600 mr-3" />
-          <span className="text-green-800">{successMessage}</span>
-          <button onClick={() => setSuccessMessage(null)} className="ml-auto text-gray-400 hover:text-gray-600">
-            <X className="w-4 h-4" />
-          </button>
-        </div>
-      )}
-
-      <div className="flex justify-between items-center mb-8">
-        <div>
-          <h2 className="text-3xl font-bold text-gray-800 tracking-tight flex items-center">
-            <HeartPulse className="w-8 h-8 mr-3 text-red-500" /> Reporte de Accidentalidad (ATEL)
-          </h2>
-          <p className="text-gray-500 mt-1">Decreto 1072 de 2015 — Resolución 1401 de 2007</p>
-        </div>
-        <div className="flex items-center space-x-3">
-          {isOnline && (
-            <div className="flex items-center text-green-600 text-sm">
-              <Wifi className="w-4 h-4 mr-1" />
-              Conectado
-            </div>
-          )}
-          <button
-            onClick={() => setView('report')}
-            className="bg-red-500 hover:bg-red-600 text-white px-5 py-2.5 rounded-xl text-sm font-bold flex items-center shadow-md transition-all"
-          >
-            <PlusCircle className="w-5 h-5 mr-2" />
-            Reportar Evento
-          </button>
-        </div>
-      </div>
-
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
-        <div className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm flex items-center">
-          <div className="w-14 h-14 rounded-full bg-blue-50 flex items-center justify-center mr-4">
-            <Activity className="w-7 h-7 text-blue-500" />
-          </div>
-          <div>
-            <p className="text-sm text-gray-400 font-medium">Total Eventos</p>
-            <h3 className="text-2xl font-bold text-gray-800">{totalEventos}</h3>
-          </div>
-        </div>
-        <div className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm flex items-center">
-          <div className="w-14 h-14 rounded-full bg-red-50 flex items-center justify-center mr-4">
-            <ShieldAlert className="w-7 h-7 text-red-500" />
-          </div>
-          <div>
-            <p className="text-sm text-gray-400 font-medium">Accidentes Graves/Mortales</p>
-            <h3 className="text-2xl font-bold text-gray-800">{totalGraves}</h3>
-          </div>
-        </div>
-        <div className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm flex items-center">
-          <div className="w-14 h-14 rounded-full bg-orange-50 flex items-center justify-center mr-4">
-            <Calendar className="w-7 h-7 text-orange-500" />
-          </div>
-          <div>
-            <p className="text-sm text-gray-400 font-medium">Días Perdidos</p>
-            <h3 className="text-2xl font-bold text-gray-800">{diasPerdidos}</h3>
-          </div>
-        </div>
-        <div className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm flex items-center">
-          <div className="w-14 h-14 rounded-full bg-purple-50 flex items-center justify-center mr-4">
-            <ClipboardList className="w-7 h-7 text-purple-500" />
-          </div>
-          <div>
-            <p className="text-sm text-gray-400 font-medium">Investigaciones</p>
-            <h3 className="text-2xl font-bold text-gray-800">{investigacionesPendientes}</h3>
-          </div>
-        </div>
-      </div>
-
-      {/* Lista de Accidentes */}
-      <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
-        <div className="px-6 py-4 border-b border-gray-100">
-          <h3 className="font-bold text-gray-800">Eventos Registrados</h3>
-        </div>
-
-        {loading ? (
-          <div className="flex justify-center p-12">
-            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-red-500"></div>
-          </div>
-        ) : accidentes.length === 0 ? (
-          <div className="text-center py-20 bg-gray-50">
-            <CheckCircle className="w-16 h-16 text-emerald-400 mx-auto mb-4" />
-            <h3 className="text-xl font-bold text-gray-800">Cero Accidentes</h3>
-            <p className="text-gray-500">Sin eventos registrados hasta el momento.</p>
-          </div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-left">
-              <thead>
-                <tr className="bg-gray-50 border-b border-gray-100 text-xs uppercase tracking-wider text-gray-500">
-                  <th className="px-6 py-4 font-bold">Trabajador</th>
-                  <th className="px-6 py-4 font-bold">Tipo</th>
-                  <th className="px-6 py-4 font-bold">Fecha</th>
-                  <th className="px-6 py-4 font-bold">Estado</th>
-                  <th className="px-6 py-4 font-bold">Investigación</th>
-                  <th className="px-6 py-4 font-bold text-right">Acciones</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-100">
-                {accidentes.map((acc) => (
-                  <tr key={acc.id} className="hover:bg-gray-50 transition-colors">
-                    <td className="px-6 py-4">
-                      <span className="font-bold text-gray-800 block">{acc.nombre_trabajador}</span>
-                      <span className="text-xs text-gray-500 block">{acc.documento_identidad}</span>
-                      <span className="text-xs text-blue-500 block">{acc.cargo}</span>
-                    </td>
-                    <td className="px-6 py-4">
-                      <span className={`px-3 py-1 text-xs font-bold rounded-full border ${getStatusColor(acc.tipo_evento)}`}>
-                        {acc.tipo_evento}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4">
-                      <span className="text-sm text-gray-700 block">{acc.fecha_evento}</span>
-                      {acc.hora_evento && <span className="text-xs text-gray-500">{acc.hora_evento}</span>}
-                    </td>
-                    <td className="px-6 py-4">
-                      <span className={`px-3 py-1 text-xs font-bold rounded-full ${getEstadoColor(acc.estado)}`}>
-                        {acc.estado}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4">
-                      {acc.investigacion ? (
-                        <span className="text-sm text-purple-600 font-medium flex items-center">
-                          <ClipboardList className="w-4 h-4 mr-1" />
-                          {acc.investigacion.estado}
-                        </span>
-                      ) : (
-                        <span className="text-sm text-gray-400">Sin iniciar</span>
-                      )}
-                    </td>
-                    <td className="px-6 py-4 text-right">
-                      <div className="flex justify-end gap-2">
-                        <button
-                          onClick={() => {
-                            if (acc.investigacion) {
-                              setInvestigacionActual(acc.investigacion);
-                              setInvFormData({
-                                responsable_sst: acc.investigacion.responsable_sst || '',
-                                jefe_inmediato_investigador: acc.investigacion.jefe_inmediato_investigador || '',
-                                incluye_copasst: acc.investigacion.incluye_copasst || false,
-                                metodologia: acc.investigacion.metodologia || '5 Porqués',
-                                secuencia_hechos: acc.investigacion.secuencia_hechos || '',
-                                causas_inmediatas_actos: acc.investigacion.causas_inmediatas_actos || [],
-                                causas_inmediatas_condiciones: acc.investigacion.causas_inmediatas_condiciones || [],
-                                causas_basicas_personales: acc.investigacion.causas_basicas_personales || [],
-                                causas_basicas_trabajo: acc.investigacion.causas_basicas_trabajo || [],
-                                acciones_correctivas: acc.investigacion.acciones_correctivas || [],
-                                acciones_preventivas: acc.investigacion.acciones_preventivas || [],
-                              });
-                              setView('investigate');
-                            } else {
-                              iniciarInvestigacion(acc);
-                            }
-                          }}
-                          className="px-3 py-2 text-purple-600 bg-purple-50 border border-purple-100 rounded-lg hover:bg-purple-600 hover:text-white transition-colors text-sm font-medium flex items-center"
-                        >
-                          {acc.investigacion ? <Eye className="w-4 h-4 mr-1" /> : <ClipboardList className="w-4 h-4 mr-1" />}
-                          {acc.investigacion ? 'Ver' : 'Investigar'}
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+            <span className="text-yellow-700 text-sm">{pendingSync} pendiente(s) de sincronizar</span>
           </div>
         )}
+
+        {/* Alertas de investigación */}
+        {alertas.length > 0 && (
+          <div className="bg-red-50 border border-red-200 rounded-xl p-4 mb-6">
+            <h4 className="font-bold text-red-800 flex items-center mb-2">
+              <AlertTriangle className="w-5 h-5 mr-2" />
+              Alertas de Investigación
+            </h4>
+            {alertas.map((alerta, index) => (
+              <div key={index} className="text-sm text-red-700 mb-1">
+                <strong>{alerta.tipo}:</strong> {alerta.mensaje} — {alerta.trabajador}
+              </div>
+            ))}
+          </div>
+        )}
+
+        {errorMessage && (
+          <div className="bg-red-50 border border-red-200 rounded-xl p-4 mb-6 flex items-center">
+            <AlertTriangle className="w-5 h-5 text-red-600 mr-3" />
+            <span className="text-red-800">{errorMessage}</span>
+            <button onClick={() => setErrorMessage(null)} className="ml-auto text-gray-400 hover:text-gray-600">
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        )}
+
+        {successMessage && (
+          <div className="bg-green-50 border border-green-200 rounded-xl p-4 mb-6 flex items-center">
+            <CheckCircle className="w-5 h-5 text-green-600 mr-3" />
+            <span className="text-green-800">{successMessage}</span>
+            <button onClick={() => setSuccessMessage(null)} className="ml-auto text-gray-400 hover:text-gray-600">
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        )}
+
+        <div className="flex justify-between items-center mb-8">
+          <div>
+            <h2 className="text-3xl font-bold text-gray-800 tracking-tight flex items-center">
+              <HeartPulse className="w-8 h-8 mr-3 text-red-500" /> Reporte de Accidentalidad (ATEL)
+            </h2>
+            <p className="text-gray-500 mt-1">Decreto 1072 de 2015 — Resolución 1401 de 2007</p>
+          </div>
+          <div className="flex items-center space-x-3">
+            {isOnline && (
+              <div className="flex items-center text-green-600 text-sm">
+                <Wifi className="w-4 h-4 mr-1" />
+                Conectado
+              </div>
+            )}
+            <button
+              onClick={() => {
+                setFormData(getInitialFormData());
+                setEditingAccidenteId(null);
+                setView('report');
+              }}
+              className="bg-red-500 hover:bg-red-600 text-white px-5 py-2.5 rounded-xl text-sm font-bold flex items-center shadow-md transition-all"
+            >
+              <PlusCircle className="w-5 h-5 mr-2" />
+              Reportar Evento
+            </button>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
+          <div className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm flex items-center">
+            <div className="w-14 h-14 rounded-full bg-blue-50 flex items-center justify-center mr-4">
+              <Activity className="w-7 h-7 text-blue-500" />
+            </div>
+            <div>
+              <p className="text-sm text-gray-400 font-medium">Total Eventos</p>
+              <h3 className="text-2xl font-bold text-gray-800">{totalEventos}</h3>
+            </div>
+          </div>
+          <div className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm flex items-center">
+            <div className="w-14 h-14 rounded-full bg-red-50 flex items-center justify-center mr-4">
+              <ShieldAlert className="w-7 h-7 text-red-500" />
+            </div>
+            <div>
+              <p className="text-sm text-gray-400 font-medium">Accidentes Graves/Mortales</p>
+              <h3 className="text-2xl font-bold text-gray-800">{totalGraves}</h3>
+            </div>
+          </div>
+          <div className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm flex items-center">
+            <div className="w-14 h-14 rounded-full bg-orange-50 flex items-center justify-center mr-4">
+              <Calendar className="w-7 h-7 text-orange-500" />
+            </div>
+            <div>
+              <p className="text-sm text-gray-400 font-medium">Días Perdidos</p>
+              <h3 className="text-2xl font-bold text-gray-800">{diasPerdidos}</h3>
+            </div>
+          </div>
+          <div className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm flex items-center">
+            <div className="w-14 h-14 rounded-full bg-purple-50 flex items-center justify-center mr-4">
+              <ClipboardList className="w-7 h-7 text-purple-500" />
+            </div>
+            <div>
+              <p className="text-sm text-gray-400 font-medium">Investigaciones</p>
+              <h3 className="text-2xl font-bold text-gray-800">{investigacionesPendientes}</h3>
+            </div>
+          </div>
+        </div>
+
+        {/* Lista de Accidentes */}
+        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+          <div className="px-6 py-4 border-b border-gray-100">
+            <h3 className="font-bold text-gray-800">Eventos Registrados</h3>
+          </div>
+
+          {loading ? (
+            <div className="flex justify-center p-12">
+              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-red-500"></div>
+            </div>
+          ) : accidentes.length === 0 ? (
+            <div className="text-center py-20 bg-gray-50">
+              <CheckCircle className="w-16 h-16 text-emerald-400 mx-auto mb-4" />
+              <h3 className="text-xl font-bold text-gray-800">Cero Accidentes</h3>
+              <p className="text-gray-500">Sin eventos registrados hasta el momento.</p>
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-left">
+                <thead>
+                  <tr className="bg-gray-50 border-b border-gray-100 text-xs uppercase tracking-wider text-gray-500">
+                    <th className="px-6 py-4 font-bold">Trabajador</th>
+                    <th className="px-6 py-4 font-bold">Tipo</th>
+                    <th className="px-6 py-4 font-bold">Fecha</th>
+                    <th className="px-6 py-4 font-bold">Estado</th>
+                    <th className="px-6 py-4 font-bold">Investigación</th>
+                    <th className="px-6 py-4 font-bold text-right">Acciones</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100">
+                  {accidentes.map((acc) => (
+                    <tr key={acc.id} className="hover:bg-gray-50 transition-colors">
+                      <td className="px-6 py-4">
+                        <span className="font-bold text-gray-800 block">{acc.nombre_trabajador}</span>
+                        <span className="text-xs text-gray-500 block">{acc.documento_identidad}</span>
+                        <span className="text-xs text-blue-500 block">{acc.cargo}</span>
+                      </td>
+                      <td className="px-6 py-4">
+                        <span className={`px-3 py-1 text-xs font-bold rounded-full border ${getStatusColor(acc.tipo_evento)}`}>
+                          {acc.tipo_evento}
+                        </span>
+                      </td>
+                      <td className="px-6 py-4">
+                        <span className="text-sm text-gray-700 block">{acc.fecha_evento}</span>
+                        {acc.hora_evento && <span className="text-xs text-gray-500">{acc.hora_evento}</span>}
+                      </td>
+                      <td className="px-6 py-4">
+                        <span className={`px-3 py-1 text-xs font-bold rounded-full ${getEstadoColor(acc.estado)}`}>
+                          {acc.estado}
+                        </span>
+                      </td>
+                      <td className="px-6 py-4">
+                        {acc.investigacion ? (
+                          <span className="text-sm text-purple-600 font-medium flex items-center">
+                            <ClipboardList className="w-4 h-4 mr-1" />
+                            {acc.investigacion.estado}
+                          </span>
+                        ) : (
+                          <span className="text-sm text-gray-400">Sin iniciar</span>
+                        )}
+                      </td>
+                      <td className="px-6 py-4 text-right">
+                        <div className="flex justify-end gap-2">
+                          <button
+                            onClick={() => editAccidente(acc)}
+                            className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                            title="Editar Reporte"
+                          >
+                            <FileText className="w-4 h-4" />
+                          </button>
+                          <button
+                            onClick={() => deleteAccidente(acc.id)}
+                            className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                            title="Eliminar Reporte"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                          <button
+                            onClick={() => {
+                              if (acc.investigacion) {
+                                setInvestigacionActual(acc.investigacion);
+                                setInvFormData({
+                                  responsable_sst: acc.investigacion.responsable_sst || '',
+                                  jefe_inmediato_investigador: acc.investigacion.jefe_inmediato_investigador || '',
+                                  incluye_copasst: acc.investigacion.incluye_copasst || false,
+                                  metodologia: acc.investigacion.metodologia || '5 Porqués',
+                                  secuencia_hechos: acc.investigacion.secuencia_hechos || '',
+                                  causas_inmediatas_actos: acc.investigacion.causas_inmediatas_actos || [],
+                                  causas_inmediatas_condiciones: acc.investigacion.causas_inmediatas_condiciones || [],
+                                  causas_basicas_personales: acc.investigacion.causas_basicas_personales || [],
+                                  causas_basicas_trabajo: acc.investigacion.causas_basicas_trabajo || [],
+                                  acciones_correctivas: acc.investigacion.acciones_correctivas || [],
+                                  acciones_preventivas: acc.investigacion.acciones_preventivas || [],
+                                });
+                                setView('investigate');
+                              } else {
+                                iniciarInvestigacion(acc);
+                              }
+                            }}
+                            className="px-3 py-2 text-purple-600 bg-purple-50 border border-purple-100 rounded-lg hover:bg-purple-600 hover:text-white transition-colors text-sm font-medium flex items-center"
+                          >
+                            {acc.investigacion ? <Eye className="w-4 h-4 mr-1" /> : <ClipboardList className="w-4 h-4 mr-1" />}
+                            {acc.investigacion ? 'Ver' : 'Investigar'}
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
       </div>
     </div>
-  </div>
   );
 }

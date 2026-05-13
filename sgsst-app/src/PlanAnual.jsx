@@ -20,16 +20,17 @@ import {
   Settings,
   PieChart,
   BarChart3,
+  Users,
   ShieldAlert,
   ShieldCheck,
 } from 'lucide-react';
 import { api, apiForm, SGSST_URL } from './services/api';
 
 const etapas = [
-  { id: 'planear', title: 'Planear', icon: ClipboardList, color: 'text-blue-500', bg: 'bg-blue-50', borderColor: 'border-blue-500' },
-  { id: 'hacer', title: 'Hacer', icon: Activity, color: 'text-orange-500', bg: 'bg-orange-50', borderColor: 'border-orange-500' },
-  { id: 'verificar', title: 'Verificar', icon: TrendingUp, color: 'text-purple-500', bg: 'bg-purple-50', borderColor: 'border-purple-500' },
-  { id: 'actuar', title: 'Actuar', icon: Settings, color: 'text-green-500', bg: 'bg-green-50', borderColor: 'border-green-500' }
+  { id: 'Planear', title: 'Planear', icon: ClipboardList, color: 'text-blue-500', bg: 'bg-blue-50', borderColor: 'border-blue-500' },
+  { id: 'Hacer', title: 'Hacer', icon: Activity, color: 'text-orange-500', bg: 'bg-orange-50', borderColor: 'border-orange-500' },
+  { id: 'Verificar', title: 'Verificar', icon: TrendingUp, color: 'text-purple-500', bg: 'bg-purple-50', borderColor: 'border-purple-500' },
+  { id: 'Actuar', title: 'Actuar', icon: Settings, color: 'text-green-500', bg: 'bg-green-50', borderColor: 'border-green-500' }
 ];
 
 const estadoColors = {
@@ -42,7 +43,7 @@ const estadoColors = {
 const initialFormData = {
   actividad: '',
   estandar_referencia: '',
-  phva_etapa: 'planear',
+  phva_etapa: 'Planear',
   categoria: '',
   fecha_inicio: '',
   fecha_fin: '',
@@ -151,8 +152,8 @@ export default function PlanAnual({ profile }) {
     const { name, value } = e.target;
     setFormData(prev => ({ ...prev, [name]: value }));
 
-    if (name === 'fecha_inicio') {
-      const mes = new Date(value).getMonth() + 1;
+    if (name === 'fecha_inicio' && value) {
+      const mes = new Date(value).getUTCMonth() + 1;
       const trimestre = Math.ceil(mes / 3);
       setFormData(prev => ({ ...prev, trimestre }));
     }
@@ -183,9 +184,13 @@ export default function PlanAnual({ profile }) {
         setFormData(initialFormData);
         fetchActividades();
         fetchResumen();
+      } else {
+        const error = await res.json();
+        alert("Error al guardar: " + (error.message || "Verifique los datos"));
       }
     } catch (err) {
       console.error("Error al guardar:", err);
+      alert("Error de conexión");
     } finally {
       setSaving(false);
     }
@@ -195,7 +200,7 @@ export default function PlanAnual({ profile }) {
     setFormData({
       actividad: actividad.actividad || '',
       estandar_referencia: actividad.estandar_referencia || '',
-      phva_etapa: actividad.phva_etapa?.toLowerCase() || 'planear',
+      phva_etapa: actividad.phva_etapa || 'Planear',
       categoria: actividad.categoria || '',
       fecha_inicio: actividad.fecha_inicio || '',
       fecha_fin: actividad.fecha_fin || '',
@@ -234,8 +239,10 @@ export default function PlanAnual({ profile }) {
         method: 'PUT',
         body: JSON.stringify({ estado: nuevoEstado }),
       });
-      fetchActividades();
-      fetchResumen();
+      if (res.ok) {
+        fetchActividades();
+        fetchResumen();
+      }
     } catch (err) {
       console.error('Error al actualizar estado:', err);
     }
@@ -350,9 +357,8 @@ export default function PlanAnual({ profile }) {
               {generating ? 'Generando...' : 'Generar desde Diagnóstico'}
             </button>
             {diagInfo !== null && (
-              <span className={`text-xs mt-1 flex items-center gap-1 ${
-                !diagInfo.exists || diagInfo.isExpired ? 'text-red-500' : 'text-green-600'
-              }`}>
+              <span className={`text-xs mt-1 flex items-center gap-1 ${!diagInfo.exists || diagInfo.isExpired ? 'text-red-500' : 'text-green-600'
+                }`}>
                 {!diagInfo.exists
                   ? <><ShieldAlert className="w-3 h-3" /> Sin diagnóstico inicial</>
                   : diagInfo.isExpired
@@ -468,7 +474,7 @@ export default function PlanAnual({ profile }) {
                 <button
                   key={q}
                   onClick={() => setActiveQuarter(q.toString())}
-                className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${activeQuarter === q.toString() ? 'bg-orange-500 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
+                  className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${activeQuarter === q.toString() ? 'bg-orange-500 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
                 >
                   Q{q}
                 </button>
@@ -527,6 +533,9 @@ export default function PlanAnual({ profile }) {
                         <p className="font-medium text-gray-800">{actividad.actividad}</p>
                         {actividad.estandar_referencia && (
                           <span className="text-xs text-gray-400 font-mono">Ref: {actividad.estandar_referencia}</span>
+                        )}
+                        {actividad.categoria && (
+                          <p className="text-[10px] text-blue-500 font-bold uppercase">{actividad.categoria}</p>
                         )}
                       </div>
                     </td>
@@ -672,6 +681,19 @@ export default function PlanAnual({ profile }) {
                   </select>
                 </div>
 
+                {/* Categoria */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Categoría</label>
+                  <input
+                    type="text"
+                    name="categoria"
+                    placeholder="Ej: Planificación, Salud..."
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 outline-none"
+                    value={formData.categoria}
+                    onChange={handleInputChange}
+                  />
+                </div>
+
                 {/* Trimestre */}
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Trimestre *</label>
@@ -777,6 +799,19 @@ export default function PlanAnual({ profile }) {
                     step="0.01"
                     className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 outline-none"
                     value={formData.presupuesto}
+                    onChange={handleInputChange}
+                  />
+                </div>
+
+                {/* Valor Inicial */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Valor Inicial Indicador</label>
+                  <input
+                    type="number"
+                    name="valor_inicial"
+                    step="0.01"
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 outline-none"
+                    value={formData.valor_inicial}
                     onChange={handleInputChange}
                   />
                 </div>

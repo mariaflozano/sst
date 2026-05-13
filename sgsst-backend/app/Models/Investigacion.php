@@ -54,6 +54,8 @@ class Investigacion extends Model
         'causas_inmediatas_condiciones' => 'array',
         'causas_basicas_personales' => 'array',
         'causas_basicas_trabajo' => 'array',
+        'acciones_correctivas' => 'array',
+        'acciones_preventivas' => 'array',
     ];
 
     public function accidente()

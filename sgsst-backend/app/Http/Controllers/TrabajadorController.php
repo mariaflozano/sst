@@ -4,7 +4,9 @@ namespace App\Http\Controllers;
 
 use App\Models\Trabajador;
 use App\Models\Ausentismo;
+use App\Models\Empresa;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\Rule;
 
 class TrabajadorController extends Controller
@@ -16,21 +18,41 @@ class TrabajadorController extends Controller
             ->where('empresa_id', $empresa_id)
             ->orderBy('nombre_completo', 'asc')
             ->get();
-            
+
         return response()->json($trabajadores);
     }
 
     // Crear un nuevo trabajador
     public function store(Request $request)
     {
+        // Priorizar el tenant_id de la sesión, luego el atributo del request, luego el header
+        $tenantId = session('tenant_id') ?? $request->attributes->get('tenant_id') ?? $request->header('X-Company-ID');
+
+        if (!$tenantId) {
+            return response()->json([
+                'error' => 'No se pudo identificar la empresa (ID no encontrado en sesión o cabeceras)',
+                'code' => 'TENANT_NOT_FOUND'
+            ], 422);
+        }
+
+        // Buscar la empresa asociada (tolerante a ID numérico o UUID tenant_id)
+        $empresa = Empresa::where('tenant_id', $tenantId)
+            ->orWhere('id', $tenantId)
+            ->first();
+
+        if (!$empresa) {
+            return response()->json([
+                'error' => 'No se encontró una empresa asociada a su cuenta'
+            ], 422);
+        }
+
         $validated = $request->validate([
-            'empresa_id' => 'required|exists:empresas,id',
             'documento' => [
                 'nullable',
                 'string',
                 'max:50',
-                Rule::unique('trabajadores')->where(function ($query) use ($request) {
-                    return $query->where('empresa_id', $request->empresa_id);
+                Rule::unique('trabajadores')->where(function ($query) use ($empresa) {
+                    return $query->where('empresa_id', $empresa->id);
                 })
             ],
             'nombre_completo' => 'required|string|max:255',
@@ -40,7 +62,10 @@ class TrabajadorController extends Controller
             'tipo_sangre' => 'required|string|max:10',
             'contacto_emergencia_nombre' => 'required|string|max:255',
             'contacto_emergencia_telefono' => 'required|string|max:50',
+            'auditor' => 'required|boolean',
         ]);
+
+        $validated['empresa_id'] = $empresa->id;
 
         if (empty($validated['estado'])) {
             $validated['estado'] = 'activo';
@@ -55,10 +80,10 @@ class TrabajadorController extends Controller
     public function update(Request $request, $id)
     {
         $trabajador = Trabajador::findOrFail($id);
-        
+
         // Bloqueo manual de seguridad por si el frontend envió otra id (Multi-tenancy backup)
         $tenantId = $request->attributes->get('tenant_id');
-        if($tenantId && $trabajador->empresa_id != $tenantId) {
+        if ($tenantId && $trabajador->empresa_id != $tenantId) {
             abort(403, 'Invasión de Privacidad (Cruce de inquilinos)');
         }
 
@@ -78,6 +103,7 @@ class TrabajadorController extends Controller
             'tipo_sangre' => 'required|string|max:10',
             'contacto_emergencia_nombre' => 'required|string|max:255',
             'contacto_emergencia_telefono' => 'required|string|max:50',
+            'auditor' => 'required|boolean',
         ]);
 
         $trabajador->update($validated);
@@ -85,13 +111,23 @@ class TrabajadorController extends Controller
         return response()->json($trabajador->load('ausentismos'));
     }
 
+    // Inactivar trabajador (soft delete)
+    public function destroy($id)
+    {
+        $trabajador = Trabajador::findOrFail($id);
+        $trabajador->estado = 'inactivo';
+        $trabajador->save();
+
+        return response()->json(['message' => 'Trabajador inactivado correctamente']);
+    }
+
     // Registrar Ausentismo
     public function storeAusentismo(Request $request, $trabajador_id)
     {
         $trabajador = Trabajador::findOrFail($trabajador_id);
-        
+
         $tenantId = $request->attributes->get('tenant_id');
-        if($tenantId && $trabajador->empresa_id != $tenantId) {
+        if ($tenantId && $trabajador->empresa_id != $tenantId) {
             abort(403);
         }
 
@@ -110,14 +146,14 @@ class TrabajadorController extends Controller
 
         return response()->json($ausentismo, 201);
     }
-    
+
     // Eliminar Ausentismo erróneo
     public function destroyAusentismo(Request $request, $id)
     {
         $ausentismo = Ausentismo::with('trabajador')->findOrFail($id);
-        
+
         $tenantId = $request->attributes->get('tenant_id');
-        if($tenantId && $ausentismo->trabajador->empresa_id != $tenantId) {
+        if ($tenantId && $ausentismo->trabajador->empresa_id != $tenantId) {
             abort(403);
         }
 

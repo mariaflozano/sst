@@ -12,8 +12,12 @@ const getAuth = () => {
 
 const getCompanyId = () => {
   try {
-    const saved = localStorage.getItem('sgsst_company_profile');
-    return saved ? JSON.parse(saved)?.id : null;
+    const profile = localStorage.getItem('sgsst_company_profile');
+    if (profile) return JSON.parse(profile)?.id;
+    
+    // Fallback: Si no hay perfil, intentar usar el tenant_id de la sesión
+    const auth = localStorage.getItem('sgsst_auth');
+    return auth ? JSON.parse(auth)?.tenant_id : null;
   } catch {
     return null;
   }

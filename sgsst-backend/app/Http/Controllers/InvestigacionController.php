@@ -54,6 +54,15 @@ class InvestigacionController extends Controller
                 'empresa_id' => $validated['empresa_id'],
                 'estado' => 'Pendiente',
                 'fecha_limite' => $fechaLimite,
+                // Copiar datos base del accidente
+                'tipo_lesion' => $accidente->tipo_lesion,
+                'parte_cuerpo' => $accidente->parte_cuerpo,
+                'clasificacion_accidente' => $accidente->clasificacion_accidente,
+                'testigos' => $accidente->testigos,
+                'jefe_inmediato' => $accidente->jefe_inmediato,
+                'reportado_arl' => $accidente->reportado_arl,
+                'fecha_reporte_arl' => $accidente->fecha_reporte_arl,
+                'numero_radicado_arl' => $accidente->numero_radicado_arl,
             ]);
 
             // Actualizar estado del accidente
@@ -87,6 +96,8 @@ class InvestigacionController extends Controller
             'reportado_arl' => 'nullable|boolean',
             'fecha_reporte_arl' => 'nullable|date',
             'numero_radicado_arl' => 'nullable|string',
+            'acciones_correctivas' => 'nullable|array',
+            'acciones_preventivas' => 'nullable|array',
             'estado' => 'nullable|string|in:Pendiente,En Proceso,Cerrado',
         ]);
 

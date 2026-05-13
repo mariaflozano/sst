@@ -16,11 +16,21 @@ class CheckTenancy
     public function handle(Request $request, Closure $next): Response
     {
         \Log::info("CheckTenancy: Iniciando para " . $request->path());
-        
+
         // 1. Omitir validación de tenancy en rutas de "descubrimiento" o creación
         // mi-empresa se identifica por query param ?tenant_id=...
         if (($request->is('api/empresas') && $request->isMethod('POST')) || $request->is('api/mi-empresa')) {
             \Log::info("CheckTenancy: Omitiendo para ruta de descubrimiento/creación: " . $request->path());
+            return $next($request);
+        }
+
+        // Lookup de empresa por tenant_id durante el login (aún no hay X-Company-ID)
+        if ($request->is('api/mi-empresa') && $request->isMethod('GET')) {
+            return $next($request);
+        }
+
+        // Ver evidencia PDF — se abre en pestaña nueva (sin headers), el controller valida empresa_id por query param
+        if ($request->is('api/evidencia/ver') && $request->isMethod('GET')) {
             return $next($request);
         }
 

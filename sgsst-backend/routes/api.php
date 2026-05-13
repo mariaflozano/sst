@@ -10,6 +10,7 @@ use App\Http\Controllers\TrabajadorController;
 use App\Http\Controllers\AusentismoController;
 use App\Http\Controllers\IndicadorController;
 use App\Http\Controllers\AuditoriaController;
+use App\Http\Controllers\EvaluacionController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 
@@ -111,3 +112,12 @@ Route::post('/empresas/auditorias/{id}/cerrar', [AuditoriaController::class, 'ce
 Route::post('/empresas/auditorias/{id}/hallazgos', [AuditoriaController::class, 'storeHallazgo']);
 Route::put('/empresas/hallazgos/{id}', [AuditoriaController::class, 'updateHallazgo']);
 Route::delete('/empresas/hallazgos/{id}', [AuditoriaController::class, 'destroyHallazgo']);
+Route::post('/empresas/hallazgos/{hallazgo_id}/tareas', [AuditoriaController::class, 'storeTarea']);
+Route::put('/empresas/tareas/{id}', [AuditoriaController::class, 'updateTarea']);
+Route::delete('/empresas/tareas/{id}', [AuditoriaController::class, 'destroyTarea']);
+
+// Evaluación Inicial (Diagnóstico Anual)
+Route::get('/empresas/{id}/evaluaciones',           [EvaluacionController::class, 'index']);
+Route::post('/evaluaciones/calificar',              [EvaluacionController::class, 'calificar']);
+Route::post('/evaluaciones/bulk',                   [EvaluacionController::class, 'bulkCalificar']);
+Route::post('/evaluaciones/anio',                   [EvaluacionController::class, 'gestionarAnio']);

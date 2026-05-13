@@ -1,18 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import {
-  Settings,
-  Building,
-  Shield,
-  User,
-  Upload,
-  Image,
-  Save,
-  X,
-  CheckCircle2,
-  AlertTriangle,
-  Eye,
-  Trash2
+  Settings, Building, Shield, User, Upload, Image,
+  Save, X, CheckCircle2, AlertTriangle, Eye,
 } from 'lucide-react';
+import { api, apiForm, SGSST_URL } from './services/api';
+
+const storageUrl = (path) =>
+  path ? (path.startsWith('http') ? path : `${SGSST_URL}/storage/${path}`) : null;
 
 export default function Parametros({ profile, onSave }) {
   const [formData, setFormData] = useState({
@@ -25,12 +19,10 @@ export default function Parametros({ profile, onSave }) {
     telefono: '',
     email: '',
     sitio_web: '',
-    // ARL
     arl_nombre: '',
     arl_nit: '',
     arl_telefono: '',
     arl_direccion: '',
-    // Representante Legal
     rep_legal_nombre: '',
     rep_legal_cedula: '',
     rep_legal_cargo: '',
@@ -45,34 +37,33 @@ export default function Parametros({ profile, onSave }) {
   const [error, setError] = useState(null);
 
   useEffect(() => {
-    if (profile) {
-      setFormData({
-        nombre: profile.nombre || '',
-        trabajadores: profile.trabajadores || '',
-        nivel_riesgo: profile.nivel_riesgo || '',
-        codigo_ciiu: profile.codigo_ciiu || '',
-        direccion: profile.direccion || '',
-        ciudad: profile.ciudad || '',
-        telefono: profile.telefono || '',
-        email: profile.email || '',
-        sitio_web: profile.sitio_web || '',
-        arl_nombre: profile.arl_nombre || '',
-        arl_nit: profile.arl_nit || '',
-        arl_telefono: profile.arl_telefono || '',
-        arl_direccion: profile.arl_direccion || '',
-        rep_legal_nombre: profile.rep_legal_nombre || '',
-        rep_legal_cedula: profile.rep_legal_cedula || '',
-        rep_legal_cargo: profile.rep_legal_cargo || '',
-      });
-
-      if (profile.logo_url) {
-        setLogoPreview(`http://localhost:8000/storage/${profile.logo_url}`);
-      }
-      if (profile.rep_legal_firma_url) {
-        setFirmaPreview(`http://localhost:8000/storage/${profile.rep_legal_firma_url}`);
-      }
-    }
+    if (!profile) return;
+    setFormData({
+      nombre: profile.nombre || '',
+      trabajadores: profile.trabajadores || '',
+      nivel_riesgo: profile.nivel_riesgo || '',
+      codigo_ciiu: profile.codigo_ciiu || '',
+      direccion: profile.direccion || '',
+      ciudad: profile.ciudad || '',
+      telefono: profile.telefono || '',
+      email: profile.email || '',
+      sitio_web: profile.sitio_web || '',
+      arl_nombre: profile.arl_nombre || '',
+      arl_nit: profile.arl_nit || '',
+      arl_telefono: profile.arl_telefono || '',
+      arl_direccion: profile.arl_direccion || '',
+      rep_legal_nombre: profile.rep_legal_nombre || '',
+      rep_legal_cedula: profile.rep_legal_cedula || '',
+      rep_legal_cargo: profile.rep_legal_cargo || '',
+    });
+    setLogoPreview(storageUrl(profile.logo_url));
+    setFirmaPreview(storageUrl(profile.rep_legal_firma_url));
   }, [profile]);
+
+  const showMessage = (msg) => {
+    setMessage(msg);
+    setTimeout(() => setMessage(null), 3000);
+  };
 
   const handleInputChange = (e) => {
     const { name, value } = e.target;
@@ -82,27 +73,22 @@ export default function Parametros({ profile, onSave }) {
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!profile?.id) return;
-
     setSaving(true);
     setError(null);
-    setMessage(null);
-
     try {
-      const res = await fetch(`http://localhost:8000/api/empresas/${profile.id}`, {
+      const res = await api(`/empresas/${profile.id}`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(formData),
       });
-
       if (res.ok) {
         const updated = await res.json();
-        setMessage('Configuración guardada correctamente');
+        showMessage('Configuración guardada correctamente');
         if (onSave) onSave(updated);
-        setTimeout(() => setMessage(null), 3000);
       } else {
-        setError('Error al guardar los cambios');
+        const data = await res.json().catch(() => ({}));
+        setError(data?.message || 'Error al guardar los cambios');
       }
-    } catch (err) {
+    } catch {
       setError('Error de conexión con el servidor');
     } finally {
       setSaving(false);
@@ -113,14 +99,11 @@ export default function Parametros({ profile, onSave }) {
     const file = e.target.files[0];
     if (!file || !profile?.id) return;
 
-    // Validar tipo
     const validTypes = ['image/png', 'image/jpeg', 'image/jpg', 'image/webp'];
     if (!validTypes.includes(file.type)) {
       setError('Solo se permiten imágenes PNG, JPG o WEBP');
       return;
     }
-
-    // Validar tamaño (2MB)
     if (file.size > 2 * 1024 * 1024) {
       setError('El archivo debe ser menor a 2MB');
       return;
@@ -128,25 +111,21 @@ export default function Parametros({ profile, onSave }) {
 
     setUploadingLogo(true);
     setError(null);
-
-    const formDataUpload = new FormData();
-    formDataUpload.append('logo', file);
+    const fd = new FormData();
+    fd.append('logo', file);
 
     try {
-      const res = await fetch(`http://localhost:8000/api/empresas/${profile.id}/logo`, {
-        method: 'POST',
-        body: formDataUpload,
-      });
-
+      const res = await apiForm(`/empresas/${profile.id}/logo`, { method: 'POST', body: fd });
       if (res.ok) {
         const updated = await res.json();
-        setLogoPreview(`http://localhost:8000/storage/${updated.logo_url}`);
-        setMessage('Logo actualizado correctamente');
-        setTimeout(() => setMessage(null), 3000);
+        const url = storageUrl(updated.logo_url);
+        setLogoPreview(url);
+        showMessage('Logo actualizado correctamente');
+        if (onSave) onSave(updated);
       } else {
         setError('Error al subir el logo');
       }
-    } catch (err) {
+    } catch {
       setError('Error de conexión al subir el logo');
     } finally {
       setUploadingLogo(false);
@@ -157,14 +136,11 @@ export default function Parametros({ profile, onSave }) {
     const file = e.target.files[0];
     if (!file || !profile?.id) return;
 
-    // Validar tipo
     const validTypes = ['image/png', 'image/jpeg', 'image/jpg', 'image/webp', 'application/pdf'];
     if (!validTypes.includes(file.type)) {
       setError('Solo se permiten imágenes PNG, JPG, WEBP o PDF');
       return;
     }
-
-    // Validar tamaño (2MB)
     if (file.size > 2 * 1024 * 1024) {
       setError('El archivo debe ser menor a 2MB');
       return;
@@ -172,25 +148,21 @@ export default function Parametros({ profile, onSave }) {
 
     setUploadingFirma(true);
     setError(null);
-
-    const formDataUpload = new FormData();
-    formDataUpload.append('firma', file);
+    const fd = new FormData();
+    fd.append('firma', file);
 
     try {
-      const res = await fetch(`http://localhost:8000/api/empresas/${profile.id}/firma`, {
-        method: 'POST',
-        body: formDataUpload,
-      });
-
+      const res = await apiForm(`/empresas/${profile.id}/firma`, { method: 'POST', body: fd });
       if (res.ok) {
         const updated = await res.json();
-        setFirmaPreview(`http://localhost:8000/storage/${updated.rep_legal_firma_url}`);
-        setMessage('Firma actualizada correctamente');
-        setTimeout(() => setMessage(null), 3000);
+        const url = storageUrl(updated.rep_legal_firma_url);
+        setFirmaPreview(url);
+        showMessage('Firma actualizada correctamente');
+        if (onSave) onSave(updated);
       } else {
         setError('Error al subir la firma');
       }
-    } catch (err) {
+    } catch {
       setError('Error de conexión al subir la firma');
     } finally {
       setUploadingFirma(false);
@@ -200,26 +172,22 @@ export default function Parametros({ profile, onSave }) {
   return (
     <div className="flex-1 overflow-auto p-6 bg-gray-50">
       {/* Header */}
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8">
-        <div className="flex items-center">
-          <div className="bg-orange-100 p-3 rounded-xl mr-4">
-            <Settings className="w-8 h-8 text-orange-600" />
-          </div>
-          <div>
-            <h2 className="text-3xl font-bold text-gray-800 tracking-tight">Parámetros del SG-SST</h2>
-            <p className="text-gray-500 mt-1">Configuración general de la empresa y datos de terceros</p>
-          </div>
+      <div className="flex items-center mb-8">
+        <div className="bg-orange-100 p-3 rounded-xl mr-4">
+          <Settings className="w-8 h-8 text-orange-600" />
+        </div>
+        <div>
+          <h2 className="text-3xl font-bold text-gray-800 tracking-tight">Parámetros del SG-SST</h2>
+          <p className="text-gray-500 mt-1">Configuración general de la empresa y datos de terceros</p>
         </div>
       </div>
 
-      {/* Messages */}
       {message && (
         <div className="mb-6 p-4 bg-green-50 border border-green-200 rounded-xl flex items-center text-green-700">
           <CheckCircle2 className="w-5 h-5 mr-3 flex-shrink-0" />
           {message}
         </div>
       )}
-
       {error && (
         <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-xl flex items-center text-red-700">
           <AlertTriangle className="w-5 h-5 mr-3 flex-shrink-0" />
@@ -229,7 +197,8 @@ export default function Parametros({ profile, onSave }) {
 
       <form onSubmit={handleSubmit}>
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {/* Datos de la Empresa */}
+
+          {/* ── Datos de la Empresa ── */}
           <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
             <div className="flex items-center mb-6">
               <div className="bg-blue-100 p-2 rounded-lg mr-3">
@@ -244,37 +213,23 @@ export default function Parametros({ profile, onSave }) {
             <div className="space-y-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Nombre de la Empresa *</label>
-                <input
-                  type="text"
-                  name="nombre"
-                  required
+                <input type="text" name="nombre" required
                   className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 outline-none"
-                  value={formData.nombre}
-                  onChange={handleInputChange}
-                />
+                  value={formData.nombre} onChange={handleInputChange} />
               </div>
 
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Nº Trabajadores *</label>
-                  <input
-                    type="number"
-                    name="trabajadores"
-                    required
+                  <input type="number" name="trabajadores" required min="1"
                     className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 outline-none"
-                    value={formData.trabajadores}
-                    onChange={handleInputChange}
-                  />
+                    value={formData.trabajadores} onChange={handleInputChange} />
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Nivel de Riesgo *</label>
-                  <select
-                    name="nivel_riesgo"
-                    required
+                  <select name="nivel_riesgo" required
                     className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 outline-none"
-                    value={formData.nivel_riesgo}
-                    onChange={handleInputChange}
-                  >
+                    value={formData.nivel_riesgo} onChange={handleInputChange}>
                     <option value="">Seleccione...</option>
                     <option value="I">Riesgo I</option>
                     <option value="II">Riesgo II</option>
@@ -287,77 +242,51 @@ export default function Parametros({ profile, onSave }) {
 
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Código CIIU Principal *</label>
-                <input
-                  type="text"
-                  name="codigo_ciiu"
-                  required
+                <input type="text" name="codigo_ciiu" required
                   className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 outline-none"
-                  value={formData.codigo_ciiu}
-                  onChange={handleInputChange}
-                />
+                  value={formData.codigo_ciiu} onChange={handleInputChange} />
               </div>
 
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Dirección</label>
-                  <input
-                    type="text"
-                    name="direccion"
+                  <input type="text" name="direccion"
                     className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 outline-none"
-                    value={formData.direccion}
-                    onChange={handleInputChange}
-                  />
+                    value={formData.direccion} onChange={handleInputChange} />
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Ciudad</label>
-                  <input
-                    type="text"
-                    name="ciudad"
+                  <input type="text" name="ciudad"
                     className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 outline-none"
-                    value={formData.ciudad}
-                    onChange={handleInputChange}
-                  />
+                    value={formData.ciudad} onChange={handleInputChange} />
                 </div>
               </div>
 
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Teléfono</label>
-                  <input
-                    type="text"
-                    name="telefono"
+                  <input type="text" name="telefono"
                     className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 outline-none"
-                    value={formData.telefono}
-                    onChange={handleInputChange}
-                  />
+                    value={formData.telefono} onChange={handleInputChange} />
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
-                  <input
-                    type="email"
-                    name="email"
+                  <input type="email" name="email"
                     className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 outline-none"
-                    value={formData.email}
-                    onChange={handleInputChange}
-                  />
+                    value={formData.email} onChange={handleInputChange} />
                 </div>
               </div>
 
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Sitio Web</label>
-                <input
-                  type="url"
-                  name="sitio_web"
-                  placeholder="https://"
+                <input type="url" name="sitio_web" placeholder="https://"
                   className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 outline-none"
-                  value={formData.sitio_web}
-                  onChange={handleInputChange}
-                />
+                  value={formData.sitio_web} onChange={handleInputChange} />
               </div>
             </div>
           </div>
 
-          {/* Logo de la Empresa */}
+          {/* ── Logo de la Empresa ── */}
           <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
             <div className="flex items-center mb-6">
               <div className="bg-purple-100 p-2 rounded-lg mr-3">
@@ -374,19 +303,12 @@ export default function Parametros({ profile, onSave }) {
                 <div className="border-2 border-dashed border-gray-300 rounded-xl p-6 text-center bg-gray-50 hover:bg-gray-100 transition-colors relative">
                   {logoPreview ? (
                     <div className="relative">
-                      <img
-                        src={logoPreview}
-                        alt="Logo"
-                        className="max-h-40 mx-auto rounded-lg object-contain"
-                      />
-                        <button
-                          type="button"
-                          onClick={() => setLogoPreview(null)}
-                          className="absolute -top-2 -right-2 bg-red-500 text-white p-1 rounded-full shadow-sm hover:bg-red-600"
-                          title="Eliminar logo"
-                        >
-                          <X className="w-4 h-4" />
-                        </button>
+                      <img src={logoPreview} alt="Logo"
+                        className="max-h-40 mx-auto rounded-lg object-contain" />
+                      <button type="button" onClick={() => setLogoPreview(null)}
+                        className="absolute -top-2 -right-2 bg-red-500 text-white p-1 rounded-full shadow-sm hover:bg-red-600">
+                        <X className="w-4 h-4" />
+                      </button>
                     </div>
                   ) : (
                     <div className="py-6">
@@ -399,26 +321,16 @@ export default function Parametros({ profile, onSave }) {
                   <label className="mt-4 inline-flex items-center justify-center px-4 py-2 bg-gray-800 hover:bg-gray-900 text-white text-sm font-medium rounded-lg cursor-pointer transition-colors">
                     <Upload className="w-4 h-4 mr-2" />
                     {uploadingLogo ? 'Subiendo...' : (logoPreview ? 'Cambiar Logo' : 'Seleccionar Archivo')}
-                    <input
-                      type="file"
-                      accept="image/png,image/jpeg,image/jpg,image/webp"
-                      className="hidden"
-                      onChange={handleLogoUpload}
-                      disabled={uploadingLogo}
-                    />
+                    <input type="file" accept="image/png,image/jpeg,image/jpg,image/webp"
+                      className="hidden" onChange={handleLogoUpload} disabled={uploadingLogo} />
                   </label>
                 </div>
 
                 {logoPreview && (
-                  <div className="mt-4 flex justify-center space-x-2">
-                    <a
-                      href={logoPreview}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="inline-flex items-center px-3 py-1.5 text-sm text-purple-600 bg-purple-50 border border-purple-200 rounded-lg hover:bg-purple-100 transition-colors"
-                    >
-                      <Eye className="w-4 h-4 mr-1" />
-                      Ver
+                  <div className="mt-4 flex justify-center">
+                    <a href={logoPreview} target="_blank" rel="noopener noreferrer"
+                      className="inline-flex items-center px-3 py-1.5 text-sm text-purple-600 bg-purple-50 border border-purple-200 rounded-lg hover:bg-purple-100 transition-colors">
+                      <Eye className="w-4 h-4 mr-1" /> Ver
                     </a>
                   </div>
                 )}
@@ -426,7 +338,7 @@ export default function Parametros({ profile, onSave }) {
             </div>
           </div>
 
-          {/* Datos de la ARL */}
+          {/* ── Datos de la ARL ── */}
           <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
             <div className="flex items-center mb-6">
               <div className="bg-green-100 p-2 rounded-lg mr-3">
@@ -441,53 +353,36 @@ export default function Parametros({ profile, onSave }) {
             <div className="space-y-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Nombre de la ARL</label>
-                <input
-                  type="text"
-                  name="arl_nombre"
-                  placeholder="Ej: PositivaARL, Sura, Liberty..."
+                <input type="text" name="arl_nombre" placeholder="Ej: PositivaARL, Sura, Liberty..."
                   className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 outline-none"
-                  value={formData.arl_nombre}
-                  onChange={handleInputChange}
-                />
+                  value={formData.arl_nombre} onChange={handleInputChange} />
               </div>
 
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">NIT</label>
-                  <input
-                    type="text"
-                    name="arl_nit"
+                  <input type="text" name="arl_nit"
                     className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 outline-none"
-                    value={formData.arl_nit}
-                    onChange={handleInputChange}
-                  />
+                    value={formData.arl_nit} onChange={handleInputChange} />
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Teléfono</label>
-                  <input
-                    type="text"
-                    name="arl_telefono"
+                  <input type="text" name="arl_telefono"
                     className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 outline-none"
-                    value={formData.arl_telefono}
-                    onChange={handleInputChange}
-                  />
+                    value={formData.arl_telefono} onChange={handleInputChange} />
                 </div>
               </div>
 
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Dirección</label>
-                <input
-                  type="text"
-                  name="arl_direccion"
+                <input type="text" name="arl_direccion"
                   className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 outline-none"
-                  value={formData.arl_direccion}
-                  onChange={handleInputChange}
-                />
+                  value={formData.arl_direccion} onChange={handleInputChange} />
               </div>
             </div>
           </div>
 
-          {/* Representante Legal */}
+          {/* ── Representante Legal ── */}
           <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
             <div className="flex items-center mb-6">
               <div className="bg-orange-100 p-2 rounded-lg mr-3">
@@ -502,36 +397,23 @@ export default function Parametros({ profile, onSave }) {
             <div className="space-y-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Nombre Completo</label>
-                <input
-                  type="text"
-                  name="rep_legal_nombre"
+                <input type="text" name="rep_legal_nombre"
                   className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 outline-none"
-                  value={formData.rep_legal_nombre}
-                  onChange={handleInputChange}
-                />
+                  value={formData.rep_legal_nombre} onChange={handleInputChange} />
               </div>
 
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Cédula de Ciudadanía</label>
-                  <input
-                    type="text"
-                    name="rep_legal_cedula"
+                  <input type="text" name="rep_legal_cedula"
                     className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 outline-none"
-                    value={formData.rep_legal_cedula}
-                    onChange={handleInputChange}
-                  />
+                    value={formData.rep_legal_cedula} onChange={handleInputChange} />
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Cargo</label>
-                  <input
-                    type="text"
-                    name="rep_legal_cargo"
-                    placeholder="Ej: Gerente General"
+                  <input type="text" name="rep_legal_cargo" placeholder="Ej: Gerente General"
                     className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 outline-none"
-                    value={formData.rep_legal_cargo}
-                    onChange={handleInputChange}
-                  />
+                    value={formData.rep_legal_cargo} onChange={handleInputChange} />
                 </div>
               </div>
             </div>
@@ -542,17 +424,10 @@ export default function Parametros({ profile, onSave }) {
               <div className="border-2 border-dashed border-gray-300 rounded-xl p-4 text-center bg-gray-50 hover:bg-gray-100 transition-colors">
                 {firmaPreview ? (
                   <div className="relative inline-block">
-                    <img
-                      src={firmaPreview}
-                      alt="Firma"
-                      className="max-h-24 mx-auto rounded object-contain"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setFirmaPreview(null)}
-                      className="absolute -top-2 -right-2 bg-red-500 text-white p-1 rounded-full shadow-sm hover:bg-red-600"
-                      title="Eliminar firma"
-                    >
+                    <img src={firmaPreview} alt="Firma"
+                      className="max-h-24 mx-auto rounded object-contain" />
+                    <button type="button" onClick={() => setFirmaPreview(null)}
+                      className="absolute -top-2 -right-2 bg-red-500 text-white p-1 rounded-full shadow-sm hover:bg-red-600">
                       <X className="w-4 h-4" />
                     </button>
                   </div>
@@ -567,25 +442,15 @@ export default function Parametros({ profile, onSave }) {
                 <label className="mt-3 inline-flex items-center justify-center px-4 py-2 bg-gray-800 hover:bg-gray-900 text-white text-sm font-medium rounded-lg cursor-pointer transition-colors">
                   <Upload className="w-4 h-4 mr-2" />
                   {uploadingFirma ? 'Subiendo...' : (firmaPreview ? 'Cambiar Firma' : 'Seleccionar Archivo')}
-                  <input
-                    type="file"
-                    accept="image/png,image/jpeg,image/jpg,image/webp,application/pdf"
-                    className="hidden"
-                    onChange={handleFirmaUpload}
-                    disabled={uploadingFirma}
-                  />
+                  <input type="file" accept="image/png,image/jpeg,image/jpg,image/webp,application/pdf"
+                    className="hidden" onChange={handleFirmaUpload} disabled={uploadingFirma} />
                 </label>
 
                 {firmaPreview && (
                   <div className="mt-3">
-                    <a
-                      href={firmaPreview}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="inline-flex items-center text-sm text-purple-600 hover:text-purple-700"
-                    >
-                      <Eye className="w-4 h-4 mr-1" />
-                      Ver archivo completo
+                    <a href={firmaPreview} target="_blank" rel="noopener noreferrer"
+                      className="inline-flex items-center text-sm text-purple-600 hover:text-purple-700">
+                      <Eye className="w-4 h-4 mr-1" /> Ver archivo completo
                     </a>
                   </div>
                 )}
@@ -596,11 +461,8 @@ export default function Parametros({ profile, onSave }) {
 
         {/* Botón Guardar */}
         <div className="mt-8 flex justify-end">
-          <button
-            type="submit"
-            disabled={saving}
-            className="px-6 py-3 bg-orange-500 hover:bg-orange-600 disabled:bg-orange-300 text-white font-bold rounded-xl flex items-center transition-colors shadow-sm"
-          >
+          <button type="submit" disabled={saving}
+            className="px-6 py-3 bg-orange-500 hover:bg-orange-600 disabled:bg-orange-300 text-white font-bold rounded-xl flex items-center transition-colors shadow-sm">
             <Save className="w-5 h-5 mr-2" />
             {saving ? 'Guardando...' : 'Guardar Cambios'}
           </button>

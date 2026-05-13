@@ -3,10 +3,12 @@
 namespace App\Http\Controllers;
 
 use App\Models\PlanAnual;
-use App\Models\EstandarProgreso;
+use App\Models\EmpresaEvaluacion;
+use App\Models\EmpresaEvaluacionAnio;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\DB;
+use Carbon\Carbon;
 
 class PlanAnualController extends Controller
 {
@@ -103,135 +105,130 @@ class PlanAnualController extends Controller
     }
 
     /**
-     * Genera actividades del plan anual a partir de los estándares NO CUMPLE del diagnóstico
+     * Genera actividades del plan anual a partir de los estándares NO CUMPLE
+     * del diagnóstico más reciente y cerrado. Valida que el diagnóstico tenga
+     * vigencia de 1 año desde su fecha de cierre.
      */
     public function generateFromDiagnosis(Request $request)
     {
-        $validated = $request->validate([
-            'empresa_id' => 'required|exists:empresas,id',
-        ]);
-
+        $validated = $request->validate(['empresa_id' => 'required|exists:empresas,id']);
         $empresaId = $validated['empresa_id'];
 
-        // Obtener estándares que NO están cumplidos (pendientes o no cumplidos)
-        // Estados válidos: 'pendiente' o 'no_cumple' indican que falta implementar el estándar
-        $noCumplen = EstandarProgreso::where('empresa_id', $empresaId)
-            ->whereIn('estado', ['pendiente', 'no_cumple'])
+        // Diagnóstico más reciente cerrado
+        $anioRecord = EmpresaEvaluacionAnio::where('empresa_id', $empresaId)
+            ->where('estado', 'cerrada')
+            ->orderBy('anio', 'desc')
+            ->first();
+
+        if (!$anioRecord) {
+            return response()->json([
+                'message' => 'No existe un diagnóstico inicial completado. Debe realizar y cerrar la Evaluación Inicial antes de generar el Plan Anual.',
+                'error' => 'sin_diagnostico',
+            ], 422);
+        }
+
+        // Fecha de referencia: cierre del diagnóstico (o apertura si no tiene cierre)
+        $fechaStr = $anioRecord->fecha_cierre ?: $anioRecord->fecha_apertura ?: "{$anioRecord->anio}-01-01";
+        $fechaDiag = $this->parseStoredDate($fechaStr);
+        $fechaVencimiento = $fechaDiag->copy()->addYear();
+
+        if (Carbon::now()->gt($fechaVencimiento)) {
+            return response()->json([
+                'message' => "El diagnóstico del año {$anioRecord->anio} venció el {$fechaVencimiento->format('d/m/Y')}. Debe realizar un nuevo diagnóstico en la Evaluación Inicial.",
+                'error' => 'diagnostico_vencido',
+                'fecha_vencimiento' => $fechaVencimiento->format('d/m/Y'),
+            ], 422);
+        }
+
+        // Estándares calificados como no_cumple en ese año
+        $noCumplen = EmpresaEvaluacion::where('empresa_id', $empresaId)
+            ->where('anio', $anioRecord->anio)
+            ->where('calificacion', 'no_cumple')
             ->get();
 
         if ($noCumplen->isEmpty()) {
-            return response()->json(['message' => 'No hay estándares con estado NO CUMPLE para generar actividades', 'actividades' => []], 200);
+            return response()->json([
+                'message' => "No hay estándares con calificación NO CUMPLE en el diagnóstico del año {$anioRecord->anio}.",
+                'actividades' => [],
+            ], 200);
         }
 
-        // Distribución por trimestre según el mes de creación del diagnóstico
-        $year = now()->year;
+        // Cuatro trimestres relativos a la fecha del diagnóstico
+        $totalDias = $fechaDiag->diffInDays($fechaVencimiento);
+        $qDias = intdiv($totalDias, 4);
         $quarters = [
-            1 => ['start' => "$year-01-01", 'end' => "$year-03-31"],
-            2 => ['start' => "$year-04-01", 'end' => "$year-06-30"],
-            3 => ['start' => "$year-07-01", 'end' => "$year-09-30"],
-            4 => ['start' => "$year-10-01", 'end' => "$year-12-31"],
-        ];
-
-        $categoriaMap = [
-            'P' => 'Planificación',
-            'CP' => 'Capacitación',
-            'S' => 'Salud Ocupacional',
-            'G' => 'Gestión de Riesgos',
-            'E' => 'Emergencias',
-            'A' => 'Auditoría',
-            'M' => 'Mejora Continua',
-        ];
-
-        $etapaMap = [
-            'P' => 'Planear',
-            'H' => 'Hacer',
-            'V' => 'Verificar',
-            'A' => 'Actuar',
+            1 => ['start' => $fechaDiag->format('Y-m-d'),                             'end' => $fechaDiag->copy()->addDays($qDias)->format('Y-m-d')],
+            2 => ['start' => $fechaDiag->copy()->addDays($qDias + 1)->format('Y-m-d'), 'end' => $fechaDiag->copy()->addDays($qDias * 2)->format('Y-m-d')],
+            3 => ['start' => $fechaDiag->copy()->addDays($qDias * 2 + 1)->format('Y-m-d'), 'end' => $fechaDiag->copy()->addDays($qDias * 3)->format('Y-m-d')],
+            4 => ['start' => $fechaDiag->copy()->addDays($qDias * 3 + 1)->format('Y-m-d'), 'end' => $fechaVencimiento->format('Y-m-d')],
         ];
 
         $created = [];
 
-        DB::transaction(function () use ($empresaId, $noCumplen, $quarters, $etapaMap, &$created) {
+        DB::transaction(function () use ($empresaId, $noCumplen, $quarters, &$created) {
             foreach ($noCumplen as $item) {
-                // Distribuir en trimestre según prioridad (primero 1 y 2)
-                $trimestreIndex = ($item->estandar_id - 1) % 4 + 1;
+                $stdId = (int) $item->estandar_id;
 
-                // Determinar etapa PHVA según el ID del estándar (Rangos 1-60)
-                // Sanitizar ID: Eliminar puntos y espacios para obtener solo el primer número si es necesario
-                $idRaw = (string)$item->estandar_id;
-                $idInt = (int)preg_replace('/[^0-9]/', '', explode('.', $idRaw)[0]);
+                if ($stdId >= 1 && $stdId <= 24)       { $etapa = 'Planear'; $categoria = 'Planificación'; }
+                elseif ($stdId >= 25 && $stdId <= 37)  { $etapa = 'Hacer';   $categoria = 'Salud Ocupacional'; }
+                elseif ($stdId >= 38 && $stdId <= 46)  { $etapa = 'Hacer';   $categoria = 'Gestión de Riesgos'; }
+                elseif ($stdId >= 47 && $stdId <= 48)  { $etapa = 'Hacer';   $categoria = 'Emergencias'; }
+                elseif ($stdId >= 49 && $stdId <= 53)  { $etapa = 'Verificar'; $categoria = 'Auditoría'; }
+                elseif ($stdId >= 54 && $stdId <= 60)  { $etapa = 'Actuar';  $categoria = 'Mejora Continua'; }
+                else                                   { $etapa = 'Planear'; $categoria = 'Planificación'; }
 
-                if ($idInt >= 1 && $idInt <= 24) {
-                    $etapa = 'Planear';
-                    $categoria = 'Planificación';
-                } elseif ($idInt >= 25 && $idInt <= 37) {
-                    $etapa = 'Hacer';
-                    $categoria = 'Salud Ocupacional';
-                } elseif ($idInt >= 38 && $idInt <= 46) {
-                    $etapa = 'Hacer';
-                    $categoria = 'Gestión de Riesgos';
-                } elseif ($idInt >= 47 && $idInt <= 48) {
-                    $etapa = 'Hacer';
-                    $categoria = 'Emergencias';
-                } elseif ($idInt >= 49 && $idInt <= 53) {
-                    $etapa = 'Verificar';
-                    $categoria = 'Auditoría';
-                } elseif ($idInt >= 54 && $idInt <= 60) {
-                    $etapa = 'Actuar';
-                    $categoria = 'Mejora Continua';
-                } else {
-                    // Inteligencia para IDs que ya traen prefijo o fuera de rango
-                    $prefix = substr($item->estandar_id, 0, 1);
-                    $etapa = $etapaMap[$prefix] ?? 'Planear';
-                    $categoria = 'Planificación';
-                }
+                $trimestreIndex = (($stdId - 1) % 4) + 1;
+                $estandarRef    = (string) $stdId;
 
-                // Buscar nombre del estándar en los datos locales
-                $estandarRef = "{$item->estandar_id}";
-                $actividadNombre = "Implementar estándar {$estandarRef} - " . $this->getEstandarNombre($item->estandar_id);
-
-                // Distribuir a lo largo del año
-                $trimestre = $trimestreIndex;
-
-                // Verificar si ya existe para evitar duplicados
                 $existe = PlanAnual::where('empresa_id', $empresaId)
                     ->where('estandar_referencia', $estandarRef)
                     ->where('generado_diagnostico', true)
                     ->exists();
 
                 if (!$existe) {
-                    $actividad = PlanAnual::create([
-                        'empresa_id' => $empresaId,
-                        'actividad' => $actividadNombre,
-                        'estandar_referencia' => $estandarRef,
-                        'phva_etapa' => $etapa,
-                        'categoria' => $categoria,
-                        'fecha_inicio' => $quarters[$trimestre]['start'],
-                        'fecha_fin' => $quarters[$trimestre]['end'],
-                        'trimestre' => $trimestre,
-                        'responsable' => 'Responsable SST',
-                        'cargo_responsable' => 'Coordinador SST',
-                        'area' => 'Seguridad y Salud en el Trabajo',
-                        'presupuesto' => 0,
-                        'recurso_necesario' => 'Documentación, personal capacitado',
-                        'indicador' => "% de cumplimiento del estándar {$estandarRef}",
-                        'meta' => '100',
-                        'unidad_meta' => '%',
-                        'valor_inicial' => 0,
-                        'estado' => 'Pendiente',
-                        'prioridad' => 'Alta',
+                    $created[] = PlanAnual::create([
+                        'empresa_id'         => $empresaId,
+                        'actividad'          => "Implementar estándar {$estandarRef} - " . $this->getEstandarNombre($stdId),
+                        'estandar_referencia'=> $estandarRef,
+                        'phva_etapa'         => $etapa,
+                        'categoria'          => $categoria,
+                        'fecha_inicio'       => $quarters[$trimestreIndex]['start'],
+                        'fecha_fin'          => $quarters[$trimestreIndex]['end'],
+                        'trimestre'          => $trimestreIndex,
+                        'responsable'        => 'Responsable SST',
+                        'cargo_responsable'  => 'Coordinador SST',
+                        'area'               => 'Seguridad y Salud en el Trabajo',
+                        'presupuesto'        => 0,
+                        'recurso_necesario'  => 'Documentación, personal capacitado',
+                        'indicador'          => "% de cumplimiento del estándar {$estandarRef}",
+                        'meta'               => '100',
+                        'unidad_meta'        => '%',
+                        'valor_inicial'      => 0,
+                        'estado'             => 'Pendiente',
+                        'prioridad'          => 'Alta',
                         'generado_diagnostico' => true,
                     ]);
-
-                    $created[] = $actividad;
                 }
             }
         });
 
         return response()->json([
-            'message' => "Se generaron " . count($created) . " actividades a partir del diagnóstico",
-            'actividades' => $created
+            'message'     => "Se generaron " . count($created) . " actividades del diagnóstico {$anioRecord->anio} (válido hasta {$fechaVencimiento->format('d/m/Y')})",
+            'actividades' => $created,
         ], 201);
+    }
+
+    /** Parsea fechas almacenadas como 'd/m/yyyy' (es-CO) o 'yyyy-mm-dd' (ISO). */
+    private function parseStoredDate(string $dateStr): Carbon
+    {
+        if (preg_match('/^\d{4}-\d{2}-\d{2}/', $dateStr)) {
+            return Carbon::parse($dateStr);
+        }
+        $parts = explode('/', $dateStr);
+        if (count($parts) === 3) {
+            return Carbon::createFromDate((int) $parts[2], (int) $parts[1], (int) $parts[0]);
+        }
+        return Carbon::now();
     }
 
     public function getEstandarNombre($id)

@@ -4,11 +4,11 @@ namespace App\Http\Controllers;
 
 use App\Models\Auditoria;
 use App\Models\AuditoriaHallazgo;
+use App\Models\TareaHallazgo;
 use Illuminate\Http\Request;
 
 class AuditoriaController extends Controller
 {
-    // Listar auditorías de la empresa
     public function index($empresa_id)
     {
         $auditorias = Auditoria::with('hallazgos_legales')
@@ -19,52 +19,47 @@ class AuditoriaController extends Controller
         return response()->json($auditorias);
     }
 
-    // Crear nueva auditoría
     public function store(Request $request)
     {
         $validated = $request->validate([
-            'empresa_id' => 'required|exists:empresas,id',
-            'tipo' => 'required|in:interna,externa,proveedores',
-            'objeto' => 'required|string|max:255',
+            'empresa_id'       => 'required|exists:empresas,id',
+            'proceso_audit'    => 'nullable|string|max:255',
+            'alcance'          => 'required|string|max:5000',
+            'auditor_nombre'   => 'required|string|max:150',
+            'auditor_perfil'   => 'nullable|string|max:100',
             'fecha_programada' => 'required|date',
-            'auditor_lider' => 'required|string|max:150',
-            'equipo_auditor' => 'nullable|string|max:255',
-            'estado' => 'nullable|in:programada,en_progreso,cerrada,cancelada',
         ]);
 
+        $validated['estado'] = 'Programada';
+        $validated['codigo'] = 'AUD-PENDING';
+
         $auditoria = Auditoria::create($validated);
+
+        $auditoria->update([
+            'codigo' => 'AUD-' . date('Y') . '-' . str_pad($auditoria->id, 3, '0', STR_PAD_LEFT),
+        ]);
 
         return response()->json($auditoria->load('hallazgos_legales'), 201);
     }
 
-    // Ver una auditoría
     public function show($id)
     {
         $auditoria = Auditoria::with('hallazgos_legales')->findOrFail($id);
         return response()->json($auditoria);
     }
 
-    // Actualizar auditoría
     public function update(Request $request, $id)
     {
         $auditoria = Auditoria::findOrFail($id);
-        
-        $tenantId = $request->attributes->get('tenant_id');
-        if($tenantId && $auditoria->empresa_id != $tenantId) {
-            abort(403);
-        }
 
         $validated = $request->validate([
-            'tipo' => 'sometimes|required|in:interna,externa,proveedores',
-            'objeto' => 'sometimes|required|string|max:255',
-            'fecha_programada' => 'sometimes|required|date',
-            'fecha_realizada' => 'nullable|date',
-            'auditor_lider' => 'sometimes|required|string|max:150',
-            'equipo_auditor' => 'nullable|string|max:255',
-            'estado' => 'nullable|in:programada,en_progreso,cerrada,cancelada',
-            'resultado' => 'nullable|in:cumple,no_cumple,observaciones,nc_mayores',
-            'conclusiones' => 'nullable|string',
-            'recomendaciones' => 'nullable|string',
+            'alcance'                => 'sometimes|required|string|max:255',
+            'auditor_nombre'         => 'sometimes|required|string|max:150',
+            'auditor_perfil'         => 'nullable|string|max:100',
+            'fecha_programada'       => 'sometimes|required|date',
+            'fecha_realizacion'      => 'nullable|date',
+            'estado'                 => 'nullable|string|max:50',
+            'conclusiones_generales' => 'nullable|string',
         ]);
 
         $auditoria->update($validated);
@@ -72,100 +67,117 @@ class AuditoriaController extends Controller
         return response()->json($auditoria->fresh('hallazgos_legales'));
     }
 
-    // Eliminar auditoría
-    public function destroy(Request $request, $id)
+    public function destroy($id)
     {
         $auditoria = Auditoria::findOrFail($id);
-        $tenantId = $request->attributes->get('tenant_id');
-        if($tenantId && $auditoria->empresa_id != $tenantId) {
-            abort(403);
-        }
         $auditoria->delete();
 
         return response()->json(['message' => 'Auditoría eliminada correctamente']);
     }
 
-    // Añadir Hallazgo
     public function storeHallazgo(Request $request, $auditoria_id)
     {
         $auditoria = Auditoria::findOrFail($auditoria_id);
 
-        $tenantId = $request->attributes->get('tenant_id');
-        if($tenantId && $auditoria->empresa_id != $tenantId) {
-            abort(403);
-        }
-
         $validated = $request->validate([
-            'tipo_hallazgo' => 'required|string',
-            'descripcion' => 'required|string',
-            'requisito_incumplido' => 'nullable|string'
+            'tipo_hallazgo'        => 'required|string',
+            'descripcion'          => 'required|string',
+            'requisito_incumplido' => 'nullable|string',
+            'fecha_limite_cierre'  => 'nullable|date',
         ]);
 
         $validated['auditoria_id'] = $auditoria->id;
-        $validated['estado'] = 'Abierto';
+        $validated['estado']       = 'Abierto';
 
         $hallazgo = AuditoriaHallazgo::create($validated);
 
-        return response()->json($hallazgo, 201);
-    }
-
-    // Actualizar Hallazgo (Añadir Plan de Acción)
-    public function updateHallazgo(Request $request, $id)
-    {
-        $hallazgo = AuditoriaHallazgo::with('auditoria')->findOrFail($id);
-        
-        $tenantId = $request->attributes->get('tenant_id');
-        if($tenantId && $hallazgo->auditoria->empresa_id != $tenantId) {
-            abort(403);
+        if ($auditoria->estado === 'Programada') {
+            $auditoria->update(['estado' => 'En Proceso']);
         }
 
+        return response()->json($hallazgo->load('tareas'), 201);
+    }
+
+    public function updateHallazgo(Request $request, $id)
+    {
+        $hallazgo = AuditoriaHallazgo::findOrFail($id);
+
         $validated = $request->validate([
-            'estado' => 'sometimes|in:Abierto,En Plan de Acción,Cerrado',
-            'plan_accion' => 'nullable|string',
-            'responsable' => 'nullable|string',
-            'fecha_compromiso' => 'nullable|date',
+            'estado'              => 'sometimes|in:Abierto,En Plan de Acción,Cerrado',
+            'fecha_limite_cierre' => 'nullable|date',
         ]);
 
         $hallazgo->update($validated);
 
-        return response()->json($hallazgo);
+        return response()->json($hallazgo->load('tareas'));
     }
 
-    // Eliminar Hallazgo
-    public function destroyHallazgo(Request $request, $id)
+    public function destroyHallazgo($id)
     {
-        $hallazgo = AuditoriaHallazgo::with('auditoria')->findOrFail($id);
-        
-        $tenantId = $request->attributes->get('tenant_id');
-        if($tenantId && $hallazgo->auditoria->empresa_id != $tenantId) {
-            abort(403);
-        }
-
+        $hallazgo = AuditoriaHallazgo::findOrFail($id);
         $hallazgo->delete();
 
-        return response()->json(['message' => 'Hallazgo eliminado correcto']);
+        return response()->json(['message' => 'Hallazgo eliminado correctamente']);
     }
 
-    // Cerrar auditoría con resultados
+    public function storeTarea(Request $request, $hallazgo_id)
+    {
+        $hallazgo = AuditoriaHallazgo::findOrFail($hallazgo_id);
+
+        $validated = $request->validate([
+            'actividad'   => 'required|string',
+            'tipo_phva'   => 'nullable|in:P,H,V,A',
+            'responsable' => 'nullable|array',
+            'fecha_inicio'=> 'nullable|date',
+            'fecha_fin'   => 'nullable|date',
+        ]);
+
+        $validated['hallazgo_id'] = $hallazgo->id;
+        $validated['estado']      = 'Abierto';
+
+        $tarea = TareaHallazgo::create($validated);
+
+        return response()->json($tarea, 201);
+    }
+
+    public function updateTarea(Request $request, $id)
+    {
+        $tarea = TareaHallazgo::findOrFail($id);
+
+        $validated = $request->validate([
+            'actividad'   => 'sometimes|required|string',
+            'tipo_phva'   => 'nullable|in:P,H,V,A',
+            'responsable' => 'nullable|array',
+            'fecha_inicio'=> 'nullable|date',
+            'fecha_fin'   => 'nullable|date',
+            'estado'      => 'sometimes|in:Abierto,En Plan de Acción,Cerrado,Verificado',
+        ]);
+
+        $tarea->update($validated);
+
+        return response()->json($tarea);
+    }
+
+    public function destroyTarea($id)
+    {
+        $tarea = TareaHallazgo::findOrFail($id);
+        $tarea->delete();
+
+        return response()->json(['message' => 'Tarea eliminada correctamente']);
+    }
+
     public function cerrar(Request $request, $id)
     {
         $auditoria = Auditoria::findOrFail($id);
 
-        $tenantId = $request->attributes->get('tenant_id');
-        if($tenantId && $auditoria->empresa_id != $tenantId) {
-            abort(403);
-        }
-
         $validated = $request->validate([
-            'resultado' => 'required|in:cumple,no_cumple,observaciones,nc_mayores',
-            'conclusiones' => 'nullable|string',
-            'recomendaciones' => 'nullable|string',
+            'conclusiones_generales' => 'nullable|string',
         ]);
 
         $auditoria->update([
-            'estado' => 'cerrada',
-            'fecha_realizada' => now()->toDateString(),
-            ...$validated,
+            'estado'                 => 'Realizada',
+            'fecha_realizacion'      => now()->toDateString(),
+            'conclusiones_generales' => $validated['conclusiones_generales'] ?? null,
         ]);
 
         return response()->json($auditoria->fresh('hallazgos_legales'));

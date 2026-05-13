@@ -1,4 +1,4 @@
-const SGSST_URL = import.meta.env.VITE_SGSST_URL ?? 'http://localhost:8000';
+export const SGSST_URL = import.meta.env.VITE_SGSST_URL ?? 'http://localhost:8000';
 const RAP_URL   = import.meta.env.VITE_RAP_URL   ?? 'http://localhost';
 
 const getAuth = () => {
